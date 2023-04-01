@@ -3,6 +3,16 @@ use chrono::{DateTime, Utc};
 
 use crate::alias::Alias;
 
+const SCHEMA: &'static str = "CREATE TABLE IF NOT EXISTS aliases (
+                alias TEXT PRIMARY KEY,
+                command TEXT NOT NULL,
+                shell TEXT NOT NULL,
+                description TEXT NOT NULL,
+                date_created TEXT NOT NULL,
+                date_updated TEXT NOT NULL
+            )";
+
+
 pub struct Database {
     conn: Connection,
 }
@@ -12,14 +22,7 @@ impl Database {
         let conn = Connection::open(db_path)?;
 
         conn.execute(
-            "CREATE TABLE IF NOT EXISTS aliases (
-                alias TEXT PRIMARY KEY,
-                command TEXT NOT NULL,
-                shell TEXT NOT NULL,
-                description TEXT NOT NULL,
-                date_created TEXT NOT NULL,
-                date_updated TEXT NOT NULL
-            )",
+            SCHEMA,
             [],
         )?;
 
