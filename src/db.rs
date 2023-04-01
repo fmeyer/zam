@@ -42,14 +42,12 @@ impl Database {
 
         Ok(())
     }
-
     pub fn update_alias(&self, alias: &Alias) -> Result<()> {
         self.conn.execute(
-            "UPDATE aliases SET command = ?1, shell = ?2, description = ?3, date_updated = ?4
-             WHERE alias = ?5",
+            "UPDATE aliases SET command = ?1, description = ?2, date_updated = ?3
+             WHERE alias = ?4",
             params![
                 alias.command,
-                alias.shell,
                 alias.description,
                 alias.date_updated.to_rfc3339(),
                 alias.alias

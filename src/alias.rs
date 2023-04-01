@@ -29,9 +29,8 @@ impl Alias {
         }
     }
 
-    pub fn update(&mut self, command: String, description: String) {
+    pub fn update(&mut self, command: String) {
         self.command = command;
-        self.description = description;
         self.date_updated = Utc::now();
     }
 }

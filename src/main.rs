@@ -39,6 +39,7 @@ fn main() {
                 .arg(Arg::with_name("file").required(true)),
         )
         .subcommand(
+                //TODO(fm): import won't properly handle duplicates
             SubCommand::with_name("import")
                 .about("Import aliases from a CSV file")
                 .arg(Arg::with_name("file").required(true)),
@@ -78,10 +79,10 @@ fn main() {
             let mut alias_to_update = Alias::new(
                 alias.to_string(),
                 command.to_string(),
-                "bash".to_string(),
+                "".to_string(),
                 description.to_string(),
             );
-            alias_to_update.update(command.to_string(), description.to_string());
+            alias_to_update.update(command.to_string());
 
             db.update_alias(&alias_to_update).unwrap_or_else(|err| {
                 eprintln!("Error updating alias: {}", err);
