@@ -1,0 +1,2 @@
+# zam
+zsh alias manager
