@@ -1,10 +1,11 @@
 use alias::Alias;
+use clap::{App, AppSettings, Arg, ArgMatches, SubCommand};
 use db::Database;
-use clap::{App, Arg, SubCommand, AppSettings, ArgMatches};
-use std::process;
+use prettytable::{Table, format};
 use std::env;
 use std::fs;
 use std::path::Path;
+use std::process;
 
 mod alias;
 mod db;
@@ -14,9 +15,7 @@ const DEFAULT_ZAM_FILE: &str = "zam.db";
 
 fn main() {
     let db = load_config();
-
     let matches = build_command_options();
-
     match matches.subcommand() {
         Some(("add", add_matches)) => {
             let alias = add_matches.value_of("alias").unwrap();
@@ -62,6 +61,11 @@ fn main() {
                 eprintln!("Alias removed successfully");
             });
         }
+        Some(("display", _)) => {
+            let mut table = Table::from_csv_string(db.export_aliases_to_csv_buffer().unwrap().as_str()).unwrap();
+            table.set_format(*format::consts::FORMAT_NO_LINESEP_WITH_TITLE);
+            table.printstd();
+        }
         Some(("aliases", _)) => {
             let aliases = db.list_aliases().unwrap_or_else(|err| {
                 eprintln!("Error listing aliases: {}", err);
@@ -69,10 +73,7 @@ fn main() {
             });
 
             for alias in aliases {
-                println!(
-                    "alias {}='{}'",
-                    alias.alias, alias.command
-                );
+                println!("alias {}='{}'", alias.alias, alias.command);
             }
         }
         Some(("export", export_matches)) => {
@@ -126,7 +127,12 @@ fn build_command_options() -> ArgMatches {
                 .about("Remove an alias")
                 .arg(Arg::with_name("alias").required(true)),
         )
-        .subcommand(SubCommand::with_name("aliases").about("List all aliases in shell `eval` ready format"))
+        .subcommand(
+            SubCommand::with_name("aliases").about("List all aliases in shell `eval` ready format"),
+        )
+        .subcommand(
+            SubCommand::with_name("display").about("List all aliases in descriptive format"),
+        )
         .subcommand(
             SubCommand::with_name("export")
                 .about("Export aliases to a CSV file")
@@ -147,9 +153,7 @@ fn load_config() -> Database {
     let db_path = Path::new(&config_dir).join(DEFAULT_ZAM_FILE);
 
     let zam_database_file = match db_path.exists() {
-        true => {
-            db_path.to_string_lossy().to_string()
-        }
+        true => db_path.to_string_lossy().to_string(),
         false => match env::var(ZAM_DATABASE_FILE) {
             Ok(env_value) => env_value,
             Err(_) => {
@@ -167,8 +171,12 @@ fn load_config() -> Database {
 }
 
 fn ensure_config_directory() -> String {
-    let config_dir = format!("{}/.config/zam", env::var("HOME").expect("HOME env not available"));
-    fs::create_dir_all(&config_dir).expect("Can't create directory, are you sure you have permission for running this code?");
+    let config_dir = format!(
+        "{}/.config/zam",
+        env::var("HOME").expect("HOME env not available")
+    );
+    fs::create_dir_all(&config_dir)
+        .expect("Can't create directory, are you sure you have permission for running this code?");
 
     config_dir
 }

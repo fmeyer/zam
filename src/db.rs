@@ -1,5 +1,9 @@
 use rusqlite::{params, Connection, Result};
 use chrono::{DateTime, Utc};
+use std::io::Cursor;
+use csv::Writer;
+
+
 
 use crate::alias::Alias;
 
@@ -66,7 +70,7 @@ impl Database {
     }
 
     pub fn list_aliases(&self) -> Result<Vec<Alias>> {
-        let mut stmt = self.conn.prepare("SELECT * FROM aliases")?;
+        let mut stmt = self.conn.prepare("SELECT * FROM aliases order by alias asc")?;
         let rows = stmt.query_map([], |row| {
             Ok(Alias {
                 alias: row.get::<_, String>(0)?,
@@ -82,6 +86,26 @@ impl Database {
         Ok(aliases)
     }
 
+
+    pub fn export_aliases_to_csv_buffer(&self) -> Result<String, Box<dyn std::error::Error>> {
+        let aliases = self.list_aliases()?;
+
+        let mut buffer = Cursor::new(Vec::new());
+
+        // New scope ensures writter drops buffer borrow
+        {
+            let mut writer = Writer::from_writer(&mut buffer);
+            for alias in &aliases {
+                writer.serialize(alias)?;
+            }
+            writer.flush()?;
+        }
+
+        let csv_data = String::from_utf8(buffer.into_inner())?;
+        Ok(csv_data)
+    }
+
+    // TODO(fm) reuse export buffer logic
     pub fn export_aliases_to_csv(&self, file_path: &str) -> Result<(), Box<dyn std::error::Error>> {
         let aliases = self.list_aliases()?;
         let mut wtr = csv::Writer::from_path(file_path)?;
