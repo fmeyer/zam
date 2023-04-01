@@ -1,0 +1,2 @@
+alias,command,shell,description,date_created,date_updated
+ls,ls -la,zsh,default shell alias,2023-04-01T10:16:41.588731Z,2023-04-01T10:16:41.588731Z

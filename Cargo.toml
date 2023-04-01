@@ -6,3 +6,9 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+rusqlite = { version = "0.26.0", features = ["chrono"] }
+chrono = { version = "0.4", features = ["serde"] }
+csv = "1.1"
+serde = { version = "1.0", features = ["derive"] }
+clap = "3.0"
+
