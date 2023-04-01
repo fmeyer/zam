@@ -2,11 +2,19 @@ use alias::Alias;
 use db::Database;
 use clap::{App, Arg, SubCommand, AppSettings};
 use std::process;
+use std::env;
+use std::fs;
+use std::path::Path;
 
 mod alias;
 mod db;
 
+const ZAM_DATABASE_FILE: &str = "ZAM_DATABASE_FILE";
+const DEFAULT_ZAM_FILE: &str = "zam.db";
+
 fn main() {
+    let db = load_config();
+
     let matches = App::new("Alias Manager")
         .version("0.0.1")
         .author("Fernando Meyer <fm@pobox.com>")
@@ -46,11 +54,6 @@ fn main() {
         )
         .get_matches();
 
-    // TODO(fm) : retrieve database from dotfiles or some
-    let db = Database::new("sample/config.zam").unwrap_or_else(|err| {
-        eprintln!("Error initializing database: {}", err);
-        process::exit(1);
-    });
 
     match matches.subcommand() {
         Some(("add", add_matches)) => {
@@ -133,4 +136,35 @@ fn main() {
             process::exit(1);
         }
     }
+}
+
+fn load_config() -> Database {
+    let config_dir = ensure_config_directory();
+    let db_path = Path::new(&config_dir).join(DEFAULT_ZAM_FILE);
+
+    let zam_database_file = match db_path.exists() {
+        true => {
+            db_path.to_string_lossy().to_string()
+        }
+        false => match env::var(ZAM_DATABASE_FILE) {
+            Ok(env_value) => env_value,
+            Err(_) => {
+                println!("There's no existing database or environment variable {} is set. Creating a new database.", ZAM_DATABASE_FILE);
+                db_path.to_string_lossy().to_string()
+            }
+        },
+    };
+
+    let db = Database::new(zam_database_file).unwrap_or_else(|err| {
+        eprintln!("Error initializing database: {}", err);
+        process::exit(1);
+    });
+    db
+}
+
+fn ensure_config_directory() -> String {
+    let config_dir = format!("{}/.config/zam", env::var("HOME").expect("HOME env not available"));
+    fs::create_dir_all(&config_dir).expect("Can't create directory, are you sure you have permission for running this code?");
+
+    config_dir
 }
