@@ -32,7 +32,7 @@ fn main() {
                 .about("Remove an alias")
                 .arg(Arg::with_name("alias").required(true)),
         )
-        .subcommand(SubCommand::with_name("list").about("List all aliases"))
+        .subcommand(SubCommand::with_name("aliases").about("List all aliases in shell `eval` ready format"))
         .subcommand(
             SubCommand::with_name("export")
                 .about("Export aliases to a CSV file")
@@ -97,7 +97,7 @@ fn main() {
                 eprintln!("Alias removed successfully");
             });
         }
-        Some(("list", _)) => {
+        Some(("aliases", _)) => {
             let aliases = db.list_aliases().unwrap_or_else(|err| {
                 eprintln!("Error listing aliases: {}", err);
                 process::exit(1);
@@ -105,8 +105,8 @@ fn main() {
 
             for alias in aliases {
                 println!(
-                    "{}: {} ({}) [{}]",
-                    alias.alias, alias.command, alias.shell, alias.description
+                    "alias {}='{}'",
+                    alias.alias, alias.command
                 );
             }
         }
