@@ -47,7 +47,7 @@ fn main() {
         .get_matches();
 
     // TODO(fm) : retrieve database from dotfiles or some
-    let db = Database::new("config.zam").unwrap_or_else(|err| {
+    let db = Database::new("sample/config.zam").unwrap_or_else(|err| {
         eprintln!("Error initializing database: {}", err);
         process::exit(1);
     });
