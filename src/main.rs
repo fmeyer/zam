@@ -1,6 +1,6 @@
 use alias::Alias;
 use db::Database;
-use clap::{App, Arg, SubCommand, AppSettings};
+use clap::{App, Arg, SubCommand, AppSettings, ArgMatches};
 use std::process;
 use std::env;
 use std::fs;
@@ -15,45 +15,7 @@ const DEFAULT_ZAM_FILE: &str = "zam.db";
 fn main() {
     let db = load_config();
 
-    let matches = App::new("Alias Manager")
-        .version("0.0.1")
-        .author("Fernando Meyer <fm@pobox.com>")
-        .about("Zsh Alias Manager")
-        .setting(AppSettings::SubcommandRequiredElseHelp)
-        .subcommand(
-            SubCommand::with_name("add")
-                .about("Add a new alias")
-                .arg(Arg::with_name("alias").required(true))
-                .arg(Arg::with_name("command").required(true))
-                .arg(Arg::with_name("shell").required(true))
-                .arg(Arg::with_name("description").required(true)),
-        )
-        .subcommand(
-            SubCommand::with_name("update")
-                .about("Update an existing alias")
-                .arg(Arg::with_name("alias").required(true))
-                .arg(Arg::with_name("command").required(true))
-                .arg(Arg::with_name("description").required(true)),
-        )
-        .subcommand(
-            SubCommand::with_name("remove")
-                .about("Remove an alias")
-                .arg(Arg::with_name("alias").required(true)),
-        )
-        .subcommand(SubCommand::with_name("aliases").about("List all aliases in shell `eval` ready format"))
-        .subcommand(
-            SubCommand::with_name("export")
-                .about("Export aliases to a CSV file")
-                .arg(Arg::with_name("file").required(true)),
-        )
-        .subcommand(
-                //TODO(fm): import won't properly handle duplicates
-            SubCommand::with_name("import")
-                .about("Import aliases from a CSV file")
-                .arg(Arg::with_name("file").required(true)),
-        )
-        .get_matches();
-
+    let matches = build_command_options();
 
     match matches.subcommand() {
         Some(("add", add_matches)) => {
@@ -136,6 +98,48 @@ fn main() {
             process::exit(1);
         }
     }
+}
+
+fn build_command_options() -> ArgMatches {
+    let matches = App::new("Alias Manager")
+        .version("0.0.1")
+        .author("Fernando Meyer <fm@pobox.com>")
+        .about("Zsh Alias Manager")
+        .setting(AppSettings::SubcommandRequiredElseHelp)
+        .subcommand(
+            SubCommand::with_name("add")
+                .about("Add a new alias")
+                .arg(Arg::with_name("alias").required(true))
+                .arg(Arg::with_name("command").required(true))
+                .arg(Arg::with_name("shell").required(true))
+                .arg(Arg::with_name("description").required(true)),
+        )
+        .subcommand(
+            SubCommand::with_name("update")
+                .about("Update an existing alias")
+                .arg(Arg::with_name("alias").required(true))
+                .arg(Arg::with_name("command").required(true))
+                .arg(Arg::with_name("description").required(true)),
+        )
+        .subcommand(
+            SubCommand::with_name("remove")
+                .about("Remove an alias")
+                .arg(Arg::with_name("alias").required(true)),
+        )
+        .subcommand(SubCommand::with_name("aliases").about("List all aliases in shell `eval` ready format"))
+        .subcommand(
+            SubCommand::with_name("export")
+                .about("Export aliases to a CSV file")
+                .arg(Arg::with_name("file").required(true)),
+        )
+        .subcommand(
+            //TODO(fm): import won't properly handle duplicates
+            SubCommand::with_name("import")
+                .about("Import aliases from a CSV file")
+                .arg(Arg::with_name("file").required(true)),
+        )
+        .get_matches();
+    matches
 }
 
 fn load_config() -> Database {

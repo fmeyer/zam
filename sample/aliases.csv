@@ -1,2 +1,9 @@
 alias,command,shell,description,date_created,date_updated
-ls,ls -la,zsh,default shell alias,2023-04-01T10:16:41.588731Z,2023-04-01T10:16:41.588731Z
+ls,ls -lah,zsh,updating ls to support human readable value,2023-04-01T10:16:41.588731Z,2023-04-01T12:25:48.533911Z
+j,jobs,zsh,list jobs,2023-04-01T16:06:38.842918Z,2023-04-01T16:06:38.842918Z
+locon,lsof -i -n -P,zsh,list open connections,2023-04-01T16:07:32.685231Z,2023-04-01T16:07:32.685231Z
+k,kubectl,shell,shorthand for kubectl,2023-04-01T16:09:20.916613Z,2023-04-01T16:09:20.916613Z
+vi,nvim,zsh,use nvim everywhere,2023-04-01T16:12:07.213643Z,2023-04-01T16:12:07.213643Z
+webserver,python3 -m http.server 8081,zsh,start python webserver on current directory,2023-04-01T16:16:36.027142Z,2023-04-01T16:16:36.027142Z
+wmirror,wget -mkEpnp,zsh,Mirror entire website locally,2023-04-01T16:17:56.453985Z,2023-04-01T16:17:56.453985Z
+history,fc -l 1,zsh,print full history,2023-04-01T16:21:10.911626Z,2023-04-01T16:21:10.911626Z
