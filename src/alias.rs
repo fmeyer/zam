@@ -12,12 +12,7 @@ pub struct Alias {
 }
 
 impl Alias {
-    pub fn new(
-        alias: String,
-        command: String,
-        shell: String,
-        description: String,
-    ) -> Self {
+    pub fn new(alias: String, command: String, shell: String, description: String) -> Self {
         let now = Utc::now();
         Alias {
             alias,

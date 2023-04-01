@@ -1,7 +1,7 @@
 use alias::Alias;
 use clap::{App, AppSettings, Arg, ArgMatches, SubCommand};
 use db::Database;
-use prettytable::{Table, format};
+use prettytable::{format, Table};
 use std::env;
 use std::fs;
 use std::path::Path;
@@ -62,7 +62,9 @@ fn main() {
             });
         }
         Some(("display", _)) => {
-            let mut table = Table::from_csv_string(db.export_aliases_to_csv_buffer().unwrap().as_str()).unwrap();
+            let mut table =
+                Table::from_csv_string(db.export_aliases_to_csv_buffer().unwrap().as_str())
+                    .unwrap();
             table.set_format(*format::consts::FORMAT_NO_LINESEP_WITH_TITLE);
             table.printstd();
         }
