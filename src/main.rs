@@ -20,13 +20,11 @@ fn main() {
         Some(("add", add_matches)) => {
             let alias = add_matches.value_of("alias").unwrap();
             let command = add_matches.value_of("command").unwrap();
-            let shell = add_matches.value_of("shell").unwrap();
             let description = add_matches.value_of("description").unwrap();
 
             let new_alias = Alias::new(
                 alias.to_string(),
                 command.to_string(),
-                shell.to_string(),
                 description.to_string(),
             );
             db.add_alias(&new_alias).unwrap_or_else(|err| {
@@ -43,7 +41,6 @@ fn main() {
             let mut alias_to_update = Alias::new(
                 alias.to_string(),
                 command.to_string(),
-                "".to_string(),
                 description.to_string(),
             );
             alias_to_update.update(command.to_string());
@@ -114,7 +111,6 @@ fn build_command_options() -> ArgMatches {
                 .about("Add a new alias")
                 .arg(Arg::with_name("alias").required(true))
                 .arg(Arg::with_name("command").required(true))
-                .arg(Arg::with_name("shell").required(true))
                 .arg(Arg::with_name("description").required(true)),
         )
         .subcommand(

@@ -5,19 +5,17 @@ use serde::{Deserialize, Serialize};
 pub struct Alias {
     pub alias: String,
     pub command: String,
-    pub shell: String,
     pub description: String,
     pub date_created: DateTime<Utc>,
     pub date_updated: DateTime<Utc>,
 }
 
 impl Alias {
-    pub fn new(alias: String, command: String, shell: String, description: String) -> Self {
+    pub fn new(alias: String, command: String, description: String) -> Self {
         let now = Utc::now();
         Alias {
             alias,
             command,
-            shell,
             description,
             date_created: now,
             date_updated: now,

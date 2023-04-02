@@ -8,7 +8,6 @@ use crate::alias::Alias;
 const SCHEMA: &'static str = "CREATE TABLE IF NOT EXISTS aliases (
                 alias TEXT PRIMARY KEY,
                 command TEXT NOT NULL,
-                shell TEXT NOT NULL,
                 description TEXT NOT NULL,
                 date_created TEXT NOT NULL,
                 date_updated TEXT NOT NULL
@@ -29,12 +28,11 @@ impl Database {
 
     pub fn add_alias(&self, alias: &Alias) -> Result<()> {
         self.conn.execute(
-            "INSERT INTO aliases (alias, command, shell, description, date_created, date_updated)
+            "INSERT INTO aliases (alias, command, description, date_created, date_updated)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
             params![
                 alias.alias,
                 alias.command,
-                alias.shell,
                 alias.description,
                 alias.date_created.to_rfc3339(),
                 alias.date_updated.to_rfc3339()
@@ -72,12 +70,11 @@ impl Database {
             Ok(Alias {
                 alias: row.get::<_, String>(0)?,
                 command: row.get::<_, String>(1)?,
-                shell: row.get::<_, String>(2)?,
-                description: row.get::<_, String>(3)?,
-                date_created: DateTime::parse_from_rfc3339(&row.get::<_, String>(4)?)
+                description: row.get::<_, String>(2)?,
+                date_created: DateTime::parse_from_rfc3339(&row.get::<_, String>(3)?)
                     .unwrap()
                     .with_timezone(&Utc),
-                date_updated: DateTime::parse_from_rfc3339(&row.get::<_, String>(5)?)
+                date_updated: DateTime::parse_from_rfc3339(&row.get::<_, String>(4)?)
                     .unwrap()
                     .with_timezone(&Utc),
             })

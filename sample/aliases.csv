@@ -1,9 +1,13 @@
-alias,command,shell,description,date_created,date_updated
-ls,ls -lah,zsh,updating ls to support human readable value,2023-04-01T10:16:41.588731Z,2023-04-01T12:25:48.533911Z
-j,jobs,zsh,list jobs,2023-04-01T16:06:38.842918Z,2023-04-01T16:06:38.842918Z
-locon,lsof -i -n -P,zsh,list open connections,2023-04-01T16:07:32.685231Z,2023-04-01T16:07:32.685231Z
-k,kubectl,shell,shorthand for kubectl,2023-04-01T16:09:20.916613Z,2023-04-01T16:09:20.916613Z
-vi,nvim,zsh,use nvim everywhere,2023-04-01T16:12:07.213643Z,2023-04-01T16:12:07.213643Z
-webserver,python3 -m http.server 8081,zsh,start python webserver on current directory,2023-04-01T16:16:36.027142Z,2023-04-01T16:16:36.027142Z
-wmirror,wget -mkEpnp,zsh,Mirror entire website locally,2023-04-01T16:17:56.453985Z,2023-04-01T16:17:56.453985Z
-history,fc -l 1,zsh,print full history,2023-04-01T16:21:10.911626Z,2023-04-01T16:21:10.911626Z
+alias,command,description,date_created,date_updated
+gaf,git add .; git commit --amend; git push -f,"git amend and force push, no questions asked",2023-04-01T20:03:31.077541Z,2023-04-01T20:06:06.981556Z
+gam,git commit --amend,git amend last commit,2023-04-01T20:16:40.010286Z,2023-04-01T20:16:40.010286Z
+history,fc -l 1,print full history,2023-04-01T16:21:10.911626Z,2023-04-01T16:21:10.911626Z
+j,jobs,list jobs,2023-04-01T16:06:38.842918Z,2023-04-01T16:06:38.842918Z
+k,kubectl,shorthand for kubectl,2023-04-01T16:09:20.916613Z,2023-04-01T16:09:20.916613Z
+locon,lsof -i -n -P,list open connections,2023-04-01T16:07:32.685231Z,2023-04-01T16:07:32.685231Z
+ls,ls -lah,updating ls to support human readable value,2023-04-01T10:16:41.588731Z,2023-04-01T12:25:48.533911Z
+vi,nvim,use nvim everywhere,2023-04-01T16:12:07.213643Z,2023-04-01T16:12:07.213643Z
+webserver,python3 -m http.server 8081,start python webserver on current directory,2023-04-01T16:16:36.027142Z,2023-04-01T16:16:36.027142Z
+wmirror,wget -mkEpnp,Mirror entire website locally,2023-04-01T16:17:56.453985Z,2023-04-01T16:17:56.453985Z
+yt-m4a,yt-dlp -x --audio-format m4a,download m4a from youtube,2023-04-01T16:15:54.583081Z,2023-04-01T16:15:54.583081Z
+yt-mp3,yt-dlp -x --audio-format mp3,download mp3 from youtube,2023-04-01T16:15:35.033404Z,2023-04-01T16:15:35.033404Z
