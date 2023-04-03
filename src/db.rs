@@ -29,7 +29,7 @@ impl Database {
     pub fn add_alias(&self, alias: &Alias) -> Result<()> {
         self.conn.execute(
             "INSERT INTO aliases (alias, command, description, date_created, date_updated)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+             VALUES (?1, ?2, ?3, ?4, ?5)",
             params![
                 alias.alias,
                 alias.command,
