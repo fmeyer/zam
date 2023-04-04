@@ -14,6 +14,7 @@ OPTIONS:
 SUBCOMMANDS:
     add        Add a new alias
     aliases    List all aliases in shell `eval` ready format
+    display    List all aliases in descriptive format
     export     Export aliases to a CSV file
     help       Print this message or the help of the given subcommand(s)
     import     Import aliases from a CSV file
@@ -21,11 +22,11 @@ SUBCOMMANDS:
     update     Update an existing alias
 ```
 
-### Setup 
+### Setup
 
 Add the following to the `~/.zshrc` file
 
-importing aliases 
+importing aliases
 
     source <(zam aliases)
 
