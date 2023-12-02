@@ -4,6 +4,7 @@ use rusqlite::{params, Connection, Result};
 use std::{fs, io::Cursor};
 
 use crate::alias::Alias;
+use crate::alias::AliasDisplay;
 
 const SCHEMA: &'static str = "CREATE TABLE IF NOT EXISTS aliases (
                 alias TEXT PRIMARY KEY,
@@ -62,19 +63,16 @@ impl Database {
         Ok(())
     }
 
-    pub fn list_aliases(&self) -> Result<Vec<Alias>> {
+    pub fn list_aliases(&self) -> Result<Vec<AliasDisplay>> {
         let mut stmt = self
             .conn
-            .prepare("SELECT * FROM aliases order by alias asc")?;
+            .prepare("SELECT alias, command, description, date_updated FROM aliases order by alias asc")?;
         let rows = stmt.query_map([], |row| {
-            Ok(Alias {
+            Ok(AliasDisplay {
                 alias: row.get::<_, String>(0)?,
                 command: row.get::<_, String>(1)?,
                 description: row.get::<_, String>(2)?,
-                date_created: DateTime::parse_from_rfc3339(&row.get::<_, String>(3)?)
-                    .unwrap()
-                    .with_timezone(&Utc),
-                date_updated: DateTime::parse_from_rfc3339(&row.get::<_, String>(4)?)
+                date_updated: DateTime::parse_from_rfc3339(&row.get::<_, String>(3)?)
                     .unwrap()
                     .with_timezone(&Utc),
             })

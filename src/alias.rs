@@ -10,6 +10,15 @@ pub struct Alias {
     pub date_updated: DateTime<Utc>,
 }
 
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AliasDisplay {
+    pub alias: String,
+    pub command: String,
+    pub description: String,
+    pub date_updated: DateTime<Utc>,
+}
+
 impl Alias {
     pub fn new(alias: String, command: String, description: String) -> Self {
         let now = Utc::now();
