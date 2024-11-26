@@ -9,10 +9,11 @@ const HISTORY_FILE: &str = ".mhist";
 
 // Define sensitive patterns to redact
 const SENSITIVE_PATTERNS: &[&str] = &[
-    r"(?i)\bkey=([^ ]+)",      // Matches "key=value"
-    r"(?i)\bpassword=([^ ]+)", // Matches "password=value"
-    r"(?i)\btoken=([^ ]+)",    // Matches "token=value"
-    r"(?i)\bsecret=([^ ]+)",   // Matches "secret=value"
+    r"(?i)\bpassword=[^\n]*",              // Matches "password=value"
+    r"(?i)\btoken=[^\n]*",                 // Matches "token=value"
+    r"(?i)\bsecret=[^\n]*",                // Matches "secret=value"
+    r"(?i)\bsecret\-\w+=[^\n]*",           // Matches "secret-*=value"
+    r"(?i)(://[a-z0-9._%+-]+:)[^@]*(@.*)", // Matches "username:password@domain"
 ];
 
 fn redact_command(command: &str) -> String {
@@ -21,10 +22,13 @@ fn redact_command(command: &str) -> String {
         let re = Regex::new(pattern).expect("Failed to compile regex");
         redacted_command = re
             .replace_all(&redacted_command, |caps: &regex::Captures| {
-                format!(
-                    "{}<redacted>",
-                    &caps[0][..caps[0].find('=').unwrap_or(0) + 1]
-                )
+                match caps.len() {
+                    3 => format!("{}<redacted>{}", &caps[1], &caps[2]),
+                    _ => format!(
+                        "{}<redacted>",
+                        &caps[0][..caps[0].find('=').unwrap_or(0) + 1]
+                    ),
+                }
             })
             .to_string();
     }
@@ -169,5 +173,35 @@ fn search_history_fzf() {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_redact_command() {
+        let test_cases = vec![
+            ("password=123456", "password=<redacted>"),
+            ("token=abcd1234", "token=<redacted>"),
+            ("secret=verysecret", "secret=<redacted>"),
+            ("secret-key=another secret", "secret-key=<redacted>"),
+            (
+                "parameter with secret-key=another secret inside",
+                "parameter with secret-key=<redacted>",
+            ),
+        ];
+
+        for (input, expected) in test_cases {
+            assert_eq!(redact_command(input), expected);
+        }
+    }
+
+    #[test]
+    fn test_redact_connection_string() {
+        let input = "postgresql://myuser:mypassword@mydbinstance.xyz123abc456.us-west-2.rds.amazonaws.com:5432/mydatabase";
+        let expected = "postgresql://myuser:<redacted>@mydbinstance.xyz123abc456.us-west-2.rds.amazonaws.com:5432/mydatabase";
+        assert_eq!(redact_command(input), expected);
     }
 }
