@@ -1,9 +1,35 @@
 [package]
 name = "mortimer"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
+authors = ["Your Name <your.email@example.com>"]
+description = "Enhanced shell history manager with sensitive data redaction"
+license = "MIT"
+repository = "https://github.com/fmeyer/mortimer"
+keywords = ["shell", "history", "cli", "security"]
+categories = ["command-line-utilities"]
 
 [dependencies]
-chrono = "0.4"
-dirs = "4.0"
-regex = "1.11.1"
+chrono = { version = "0.4", default-features = false, features = [
+    "std",
+    "clock",
+    "serde",
+] }
+dirs = "5.0"
+regex = "1.10"
+clap = { version = "4.4", features = ["derive"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "1.0"
+home = "0.5"
+
+[dev-dependencies]
+tempfile = "3.8"
+
+[[bin]]
+name = "mortimer"
+path = "src/main.rs"
+
+[lib]
+name = "mortimer"
+path = "src/lib.rs"
