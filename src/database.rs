@@ -6,13 +6,10 @@
 //! - Token/password storage for retrieval
 //! - Migration from legacy .mhist files
 
-use crate::config::Config;
-use crate::error::{Error, Result};
-use crate::redaction::RedactionEngine;
+use crate::error::Result;
 use chrono::{DateTime, Utc};
 use rusqlite::{params, Connection, OptionalExtension};
-use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use uuid::Uuid;
 
 /// Represents a host in the database
@@ -617,7 +614,7 @@ impl Database {
 
                 // Start new entry
                 current_entry = Some(entry_parts);
-            } else if let Some((timestamp, directory, ref mut command)) = current_entry.as_mut() {
+            } else if let Some((_timestamp, _directory, ref mut command)) = current_entry.as_mut() {
                 // This is a continuation line (multiline command)
                 command.push('\n');
                 command.push_str(line.trim());
@@ -794,7 +791,7 @@ mod tests {
         let result = Database::parse_mhist_line(line);
         assert!(result.is_some());
 
-        let (timestamp, directory, command) = result.unwrap();
+        let (_, directory, command) = result.unwrap();
         assert_eq!(directory, "/Users/fm/tmp");
         assert_eq!(command, "ls -la");
     }

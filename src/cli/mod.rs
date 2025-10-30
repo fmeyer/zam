@@ -12,7 +12,7 @@ pub use args::*;
 use handlers::*;
 
 use crate::config::Config;
-use crate::error::{Error, Result};
+use crate::error::Result;
 use crate::history::HistoryManager;
 use crate::history_db::HistoryManagerDb;
 use crate::search::SearchEngine;
@@ -94,20 +94,20 @@ pub enum Commands {
 }
 
 /// History backend type
-enum HistoryBackend {
+pub(crate) enum HistoryBackend {
     File(HistoryManager),
     Database(HistoryManagerDb),
 }
 
 /// Main CLI application
 pub struct CliApp {
-    config: Config,
-    backend: HistoryBackend,
-    search_engine: SearchEngine,
-    verbose: bool,
-    quiet: bool,
+    pub config: Config,
+    pub(crate) backend: HistoryBackend,
+    pub search_engine: SearchEngine,
+    pub verbose: bool,
+    pub quiet: bool,
     #[allow(dead_code)]
-    no_color: bool,
+    pub no_color: bool,
 }
 
 impl CliApp {
@@ -193,7 +193,7 @@ impl CliApp {
         }
     }
 
-    fn verbose_println(&self, message: &str) {
+    pub fn verbose_println(&self, message: &str) {
         if self.verbose && !self.quiet {
             eprintln!("[verbose] {}", message);
         }

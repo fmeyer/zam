@@ -12,11 +12,9 @@ mod config;
 mod database;
 mod import_export;
 mod shell_integration;
-mod util;
 
 pub use basic::*;
 pub use config::*;
 pub use database::*;
 pub use import_export::*;
 pub use shell_integration::*;
-pub use util::*;

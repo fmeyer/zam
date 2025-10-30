@@ -12,7 +12,6 @@ use crate::error::{Error, Result};
 use crate::redaction::RedactionEngine;
 use chrono::{DateTime, Utc};
 use regex::Regex;
-use std::collections::HashMap;
 use std::env;
 use std::path::{Path, PathBuf};
 
