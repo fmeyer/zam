@@ -74,6 +74,8 @@ pub enum Commands {
     Frequent(FrequentArgs),
     /// Validate redaction patterns
     Validate(ValidateArgs),
+    /// Show backend status and configuration
+    Status,
     /// Migrate from legacy .mhist file to database
     Migrate(MigrateArgs),
     /// Merge databases from different machines
@@ -82,8 +84,8 @@ pub enum Commands {
     Tokens(TokensArgs),
     /// List and manage hosts
     Hosts(HostsArgs),
-    /// List and manage session
-    Session(SessionArgs),
+    /// List and manage sessions
+    Sessions(SessionsArgs),
 }
 
 #[derive(Args)]
@@ -505,6 +507,18 @@ impl CliApp {
 
     /// Run the CLI application
     pub fn run(&mut self, command: &Commands) -> Result<()> {
+        // Show backend info in verbose mode
+        if self.verbose && !self.quiet {
+            match &self.backend {
+                HistoryBackend::File(_) => {
+                    eprintln!("[verbose] Using file-based backend");
+                }
+                HistoryBackend::Database(_) => {
+                    eprintln!("[verbose] Using SQLite database backend");
+                }
+            }
+        }
+
         match command {
             Commands::Log(args) => self.handle_log(args),
             Commands::Search(args) => self.handle_search(args),
@@ -518,6 +532,7 @@ impl CliApp {
             Commands::Recent(args) => self.handle_recent(args),
             Commands::Frequent(args) => self.handle_frequent(args),
             Commands::Validate(args) => self.handle_validate(args),
+            Commands::Status => self.handle_status(),
             Commands::Migrate(args) => self.handle_migrate(args),
             Commands::Merge(args) => self.handle_merge(args),
             Commands::Tokens(args) => self.handle_tokens(args),
@@ -834,8 +849,9 @@ impl CliApp {
             HistoryBackend::File(mgr) => {
                 let stats = mgr.get_stats();
 
-                println!("History Statistics");
-                println!("==================");
+                println!("History Statistics (File-based)");
+                println!("================================");
+                println!("Backend: File (~/.mhist)");
                 println!("Total entries: {}", stats.total_entries);
                 println!("Unique commands: {}", stats.unique_commands);
                 println!("Redacted entries: {}", stats.redacted_entries);
@@ -880,6 +896,7 @@ impl CliApp {
 
                 println!("History Statistics (Database)");
                 println!("==============================");
+                println!("Backend: SQLite Database");
                 println!("Total commands: {}", stats.total_commands);
                 println!("Total sessions: {}", stats.total_sessions);
                 println!("Total hosts: {}", stats.total_hosts);
@@ -910,7 +927,7 @@ impl CliApp {
             }
         }
 
-        match &self.backend {
+        match &mut self.backend {
             HistoryBackend::File(mgr) => mgr.clear()?,
             HistoryBackend::Database(mgr) => mgr.clear()?,
         }
@@ -938,30 +955,6 @@ impl CliApp {
             }
         } else {
             println!("Use --show, --init, or --validate");
-        }
-
-        Ok(())
-    }
-
-    fn handle_fzf(&mut self, args: &FzfArgs) -> Result<()> {
-        let mut commands = if args.unique {
-            self.history_manager.get_unique_commands()?
-        } else {
-            self.history_manager
-                .get_entries()?
-                .into_iter()
-                .map(|entry| entry.command)
-                .collect()
-        };
-
-        if args.reverse {
-            commands.reverse();
-        }
-
-        commands.truncate(args.limit);
-
-        for command in commands {
-            println!("{}", command);
         }
 
         Ok(())
@@ -1017,7 +1010,7 @@ impl CliApp {
     }
 
     fn handle_fzf(&mut self, args: &FzfArgs) -> Result<()> {
-        let entries = match &self.backend {
+        let mut entries = match &self.backend {
             HistoryBackend::File(mgr) => mgr.get_entries()?,
             HistoryBackend::Database(mgr) => mgr
                 .get_all_commands()?
@@ -1037,21 +1030,24 @@ impl CliApp {
             entries.retain(|entry| entry.directory.contains(dir));
         }
 
-        // Sort by timestamp (most recent first)
-        entries.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+        // Handle unique flag
+        if args.unique {
+            let mut seen = std::collections::HashSet::new();
+            entries.retain(|entry| seen.insert(entry.command.clone()));
+        }
+
+        // Sort by timestamp
+        if args.reverse {
+            entries.sort_by(|a, b| a.timestamp.cmp(&b.timestamp));
+        } else {
+            entries.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+        }
 
         // Take the requested number of entries
-        entries.truncate(args.count);
+        entries.truncate(args.limit);
 
         for entry in entries {
-            let mut output = String::new();
-
-            if args.timestamps {
-                output.push_str(&format!("{} ", entry.formatted_timestamp()));
-            }
-
-            output.push_str(&entry.command);
-            println!("{}", output);
+            println!("{}", entry.command);
         }
 
         Ok(())
@@ -1220,6 +1216,103 @@ bind \cr mortimer_search
         }
     }
 
+    fn handle_status(&self) -> Result<()> {
+        println!("Mortimer Status");
+        println!("===============\n");
+
+        // Show backend type
+        match &self.backend {
+            HistoryBackend::File(_) => {
+                println!("Backend: File-based");
+                println!("Storage: {}", self.config.history_file.display());
+                println!("Type: Legacy .mhist format\n");
+
+                if self.config.history_file.with_extension("db").exists() {
+                    println!(
+                        "⚠️  Note: A database file exists at {}",
+                        self.config.history_file.with_extension("db").display()
+                    );
+                    println!("   To use it, run commands with --use-db flag");
+                    println!("   Or delete the .mhist file to auto-switch\n");
+                }
+            }
+            HistoryBackend::Database(_) => {
+                println!("Backend: SQLite Database");
+                println!(
+                    "Storage: {}",
+                    self.config.history_file.with_extension("db").display()
+                );
+                println!("Type: Multi-host, session-aware\n");
+
+                if self.config.history_file.exists() {
+                    println!("ℹ️  Note: Legacy .mhist file still exists");
+                    println!("   You can safely delete it after verifying migration\n");
+                }
+            }
+        }
+
+        // Show configuration
+        println!("Configuration:");
+        println!("  Redaction enabled: {}", self.config.enable_redaction);
+        println!(
+            "  Max entries: {}",
+            if self.config.max_entries == 0 {
+                "unlimited".to_string()
+            } else {
+                self.config.max_entries.to_string()
+            }
+        );
+        println!("  Auto-log: {}", self.config.shell_integration.auto_log);
+        println!(
+            "  Log duplicates: {}",
+            self.config.shell_integration.log_duplicates
+        );
+
+        if !self.config.shell_integration.exclude_commands.is_empty() {
+            println!(
+                "  Excluded commands: {}",
+                self.config.shell_integration.exclude_commands.len()
+            );
+        }
+
+        println!();
+
+        // Show quick stats
+        match &self.backend {
+            HistoryBackend::File(mgr) => {
+                let stats = mgr.get_stats();
+                println!("Quick Stats:");
+                println!("  Total entries: {}", stats.total_entries);
+                println!("  Unique commands: {}", stats.unique_commands);
+                println!("  Redacted entries: {}", stats.redacted_entries);
+            }
+            HistoryBackend::Database(mgr) => match mgr.get_stats() {
+                Ok(stats) => {
+                    println!("Quick Stats:");
+                    println!("  Total commands: {}", stats.total_commands);
+                    println!("  Total sessions: {}", stats.total_sessions);
+                    println!("  Total hosts: {}", stats.total_hosts);
+                    println!("  Redacted commands: {}", stats.redacted_commands);
+                    println!("  Stored tokens: {}", stats.stored_tokens);
+
+                    if let Some(oldest) = stats.oldest_entry {
+                        println!("  Oldest entry: {}", oldest.format("%Y-%m-%d"));
+                    }
+                    if let Some(newest) = stats.newest_entry {
+                        println!("  Newest entry: {}", newest.format("%Y-%m-%d"));
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Error getting stats: {}", e);
+                }
+            },
+        }
+
+        println!("\nFor detailed statistics, run: mortimer stats");
+
+        Ok(())
+    }
+
     fn handle_migrate(&mut self, args: &MigrateArgs) -> Result<()> {
         let mgr = match &mut self.backend {
             HistoryBackend::Database(mgr) => mgr,
@@ -1277,7 +1370,7 @@ bind \cr mortimer_search
     }
 
     fn handle_tokens(&mut self, args: &TokensArgs) -> Result<()> {
-        let mgr = match &self.backend {
+        let mgr = match &mut self.backend {
             HistoryBackend::Database(mgr) => mgr,
             HistoryBackend::File(_) => {
                 return Err(Error::custom(

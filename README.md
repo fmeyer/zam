@@ -8,13 +8,18 @@ Mortimer is a modern, fast, and secure command-line history manager designed for
 ## ✨ Features
 
 - **🔒 Automatic Sensitive Data Redaction**: Intelligently detects and redacts passwords, tokens, API keys, and other sensitive information
-- **🔍 Advanced Search**: Fuzzy search, regex support, filtering by directory and time range
-- **📚 Multi-Shell Support**: Import from Zsh, Bash, and Fish history files
+- **💾 SQLite Database Backend**: Store history in a robust SQLite database with support for multi-host and session tracking
+- **🔑 Token Storage & Retrieval**: Automatically extract and store redacted tokens for later retrieval by session or directory
+- **🖥️ Multi-Host Support**: Track commands across different machines and merge histories seamlessly
+- **📦 Session Management**: Group commands by shell session with automatic session tracking
+- **🔍 Advanced Search**: Fuzzy search, regex support, filtering by directory, time range, and host
+- **📚 Multi-Shell Support**: Import from Zsh, Bash, Fish history files, and legacy .mhist format
 - **⚙️ Highly Configurable**: JSON-based configuration with extensive customization options
-- **🚀 Fast and Efficient**: Written in Rust for optimal performance
+- **🚀 Fast and Efficient**: Written in Rust for optimal performance with SQLite indexing
 - **🎯 Smart Deduplication**: Automatic duplicate command filtering
-- **📊 Comprehensive Statistics**: Detailed analytics about your command usage
+- **📊 Comprehensive Statistics**: Detailed analytics about your command usage across hosts and sessions
 - **🔗 Shell Integration**: Seamless integration with your favorite shell
+- **🔄 Easy Migration**: Migrate from file-based history to database with a single command
 
 ## 🚀 Installation
 
@@ -46,6 +51,12 @@ mortimer search "git"
 # Import your existing shell history
 mortimer import zsh
 
+# Migrate from legacy .mhist file to database
+mortimer --use-db migrate ~/.mhist
+
+# Merge databases from different machines
+mortimer --use-db merge ~/backup/history.db
+
 # Search with fuzzy matching
 mortimer search --fuzzy "git comm"
 
@@ -55,8 +66,17 @@ mortimer search --regex "git (commit|push)"
 # Show recent commands
 mortimer recent --count 10
 
-# Show statistics
-mortimer stats
+# Check which backend you're using
+mortimer status
+
+# Show statistics (with database features)
+mortimer --use-db stats
+
+# List all hosts
+mortimer --use-db hosts --list
+
+# Retrieve stored tokens from current session
+mortimer --use-db tokens --session <session-id>
 ```
 
 ### Shell Integration
@@ -88,12 +108,21 @@ mortimer shell fish >> ~/.config/fish/config.fish
 
 ### Core Commands
 
+- `status` - Show backend type (file vs database) and configuration
 - `log <command>` - Log a command to history
 - `search <term>` - Search command history
 - `import <shell>` - Import history from shell files
 - `recent` - Show recent commands
 - `stats` - Display usage statistics
 - `clear` - Clear history (with confirmation)
+
+### Database-Specific Commands (use with `--use-db` flag)
+
+- `migrate <mhist-file>` - Migrate from legacy .mhist file to database
+- `merge <db-file>` - Merge another database into the current one
+- `tokens` - Manage and retrieve stored tokens/passwords
+- `hosts` - List and manage tracked hosts
+- `sessions` - List and manage shell sessions
 
 ### Advanced Commands
 
@@ -126,6 +155,97 @@ mortimer search --regex "git (push|pull) origin"
 
 # Search only redacted commands
 mortimer search --redacted-only
+
+# Search across all hosts in database
+mortimer --use-db search "deploy"
+
+# Search in specific directory
+mortimer search --directory "/home/user/projects" "npm test"
+```
+
+## 🔄 Database Backend
+
+### Checking Your Current Backend
+
+To see which backend you're currently using:
+
+```bash
+# Check backend status
+mortimer status
+
+# Shows:
+# - Backend type (file-based or SQLite database)
+# - Storage location
+# - Configuration summary
+# - Quick statistics
+```
+
+### Switching to Database Backend
+
+Mortimer automatically detects whether to use the file-based or database backend:
+
+- If a `.db` file exists (e.g., `~/.mhist.db`), it uses the database backend
+- Otherwise, it uses the legacy file-based backend
+
+You can explicitly choose the backend:
+
+```bash
+# Force database backend
+mortimer --use-db <command>
+
+# Force file-based backend  
+mortimer --use-file <command>
+
+# Use verbose mode to see which backend is active
+mortimer -v recent --count 5
+```
+
+### Migrating to Database
+
+```bash
+# Migrate your existing .mhist file
+mortimer --use-db migrate ~/.mhist
+
+# Import from shell histories
+mortimer --use-db import bash
+mortimer --use-db import zsh
+
+# Merge databases from other machines
+mortimer --use-db merge ~/laptop-history.db
+```
+
+### Token Management
+
+The database backend automatically extracts and stores redacted tokens:
+
+```bash
+# View tokens from a specific session
+mortimer --use-db tokens --session <session-id>
+
+# View tokens from a directory
+mortimer --use-db tokens --directory "/home/user/projects"
+
+# View tokens for a specific command
+mortimer --use-db tokens --command-id 123
+
+# Show actual token values (use with caution!)
+mortimer --use-db tokens --session <id> --show-values
+```
+
+### Host and Session Management
+
+```bash
+# List all tracked hosts
+mortimer --use-db hosts --list
+
+# Show sessions for a specific host
+mortimer --use-db hosts --show-sessions <host-id>
+
+# List sessions for a host
+mortimer --use-db sessions --host-id <host-id>
+
+# Show only active sessions
+mortimer --use-db sessions --host-id <host-id> --active
 ```
 
 ## ⚙️ Configuration
@@ -274,6 +394,23 @@ mortimer export --directory "/home/user/projects" --format csv
 
 # Export recent commands (last 30 days)
 mortimer export --days 30 --format plain
+
+# Export from database
+mortimer --use-db export --format json --output backup.json
+```
+
+### Merging Databases from Multiple Machines
+
+```bash
+# On machine 1, export or copy the database
+cp ~/.mhist.db ~/machine1-history.db
+
+# On machine 2, merge the database
+mortimer --use-db merge ~/machine1-history.db
+
+# Verify the merge
+mortimer --use-db stats
+mortimer --use-db hosts --list
 ```
 
 ## 🏗️ Development
@@ -327,6 +464,8 @@ Contributions are welcome! Please feel free to submit a Pull Request. For major 
 - CLI powered by [clap](https://github.com/clap-rs/clap)
 - Regex processing by [regex](https://github.com/rust-lang/regex)
 - Date/time handling by [chrono](https://github.com/chronotope/chrono)
+- Database powered by [rusqlite](https://github.com/rusqlite/rusqlite)
+- UUID generation by [uuid](https://github.com/uuid-rs/uuid)
 
 ---
 

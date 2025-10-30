@@ -45,9 +45,7 @@ impl HistoryManagerDb {
         )?;
 
         // Get database path from config or default
-        let db_path = config
-            .history_file
-            .with_extension("db");
+        let db_path = config.history_file.with_extension("db");
 
         let db = Database::new(&db_path)?;
 
@@ -120,29 +118,23 @@ impl HistoryManagerDb {
         // Define patterns for token extraction
         let patterns = vec![
             (
-                r"(?i)(?:password|passwd|pwd)[\s=:]+['\"]?([^\s'\"]{3,})['\"]?",
+                r#"(?i)(?:password|passwd|pwd)[\s=:]+['"]?([^\s'"]{3,})['"]?"#,
                 "password",
             ),
             (
-                r"(?i)(?:token|api_key|apikey|api-key)[\s=:]+['\"]?([^\s'\"]{10,})['\"]?",
+                r#"(?i)(?:token|api_key|apikey|api-key)[\s=:]+['"]?([^\s'"]{10,})['"]?"#,
                 "api_key",
             ),
             (
-                r"(?i)(?:secret|secret_key|secretkey)[\s=:]+['\"]?([^\s'\"]{10,})['\"]?",
+                r#"(?i)(?:secret|secret_key|secretkey)[\s=:]+['"]?([^\s'"]{10,})['"]?"#,
                 "secret",
             ),
             (
-                r"(?i)(?:bearer|authorization)[\s:]+['\"]?([^\s'\"]{10,})['\"]?",
+                r#"(?i)(?:bearer|authorization)[\s:]+['"]?([^\s'"]{10,})['"]?"#,
                 "bearer_token",
             ),
-            (
-                r"(?i)--password[=\s]+['\"]?([^\s'\"]{3,})['\"]?",
-                "password",
-            ),
-            (
-                r"(?i)-p\s+['\"]?([^\s'\"]{3,})['\"]?",
-                "password",
-            ),
+            (r#"(?i)--password[=\s]+['"]?([^\s'"]{3,})['"]?"#, "password"),
+            (r#"(?i)-p\s+['"]?([^\s'"]{3,})['"]?"#, "password"),
         ];
 
         for (pattern_str, token_type) in patterns {
@@ -254,9 +246,7 @@ impl HistoryManagerDb {
         };
 
         if !history_path.exists() {
-            return Err(Error::HistoryFileNotFound {
-                path: history_path,
-            });
+            return Err(Error::HistoryFileNotFound { path: history_path });
         }
 
         self.db.import_from_bash_history(&history_path)
@@ -275,9 +265,7 @@ impl HistoryManagerDb {
         };
 
         if !history_path.exists() {
-            return Err(Error::HistoryFileNotFound {
-                path: history_path,
-            });
+            return Err(Error::HistoryFileNotFound { path: history_path });
         }
 
         self.db.import_from_zsh_history(&history_path)
@@ -298,9 +286,7 @@ impl HistoryManagerDb {
         };
 
         if !history_path.exists() {
-            return Err(Error::HistoryFileNotFound {
-                path: history_path,
-            });
+            return Err(Error::HistoryFileNotFound { path: history_path });
         }
 
         // Fish history format is YAML-like, we'll do basic parsing
@@ -369,25 +355,28 @@ impl HistoryManagerDb {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::NamedTempFile;
+    use tempfile::{NamedTempFile, TempDir};
 
-    fn test_config() -> Config {
-        let temp_file = NamedTempFile::new().unwrap();
+    fn test_config() -> (Config, TempDir) {
+        let temp_dir = TempDir::new().unwrap();
+        let temp_file = temp_dir.path().join("test.mhist");
         let mut config = Config::default();
-        config.history_file = temp_file.path().to_path_buf();
-        config
+        config.history_file = temp_file;
+        config.enable_redaction = true;
+        config.shell_integration.exclude_commands.clear();
+        (config, temp_dir)
     }
 
     #[test]
     fn test_history_manager_creation() {
-        let config = test_config();
+        let (config, _temp_dir) = test_config();
         let manager = HistoryManagerDb::new(config);
         assert!(manager.is_ok());
     }
 
     #[test]
     fn test_log_command() {
-        let config = test_config();
+        let (config, _temp_dir) = test_config();
         let mut manager = HistoryManagerDb::new(config).unwrap();
 
         let result = manager.log_command("ls -la");
@@ -399,7 +388,7 @@ mod tests {
 
     #[test]
     fn test_redaction_with_tokens() {
-        let config = test_config();
+        let (config, _temp_dir) = test_config();
         let mut manager = HistoryManagerDb::new(config).unwrap();
 
         manager
@@ -414,7 +403,7 @@ mod tests {
 
     #[test]
     fn test_token_extraction() {
-        let config = test_config();
+        let (config, _temp_dir) = test_config();
         let manager = HistoryManagerDb::new(config).unwrap();
 
         let (redacted, tokens) = manager
@@ -427,7 +416,7 @@ mod tests {
 
     #[test]
     fn test_search() {
-        let config = test_config();
+        let (config, _temp_dir) = test_config();
         let mut manager = HistoryManagerDb::new(config).unwrap();
 
         manager.log_command("git status").unwrap();
@@ -440,12 +429,10 @@ mod tests {
 
     #[test]
     fn test_token_retrieval() {
-        let config = test_config();
+        let (config, _temp_dir) = test_config();
         let mut manager = HistoryManagerDb::new(config).unwrap();
 
-        manager
-            .log_command("export PASSWORD=mypass123")
-            .unwrap();
+        manager.log_command("export PASSWORD=mypass123").unwrap();
 
         let commands = manager.get_recent(1).unwrap();
         let tokens = manager.get_tokens_for_command(commands[0].id).unwrap();
@@ -456,15 +443,11 @@ mod tests {
     #[test]
     fn test_multiline_mhist_import() {
         use std::io::Write;
-        let config = test_config();
+        let (config, _temp_dir) = test_config();
         let mut manager = HistoryManagerDb::new(config).unwrap();
 
         let mut temp_mhist = NamedTempFile::new().unwrap();
-        writeln!(
-            temp_mhist,
-            "2025-10-27 19:39:35 | /tmp | echo 'line1'"
-        )
-        .unwrap();
+        writeln!(temp_mhist, "2025-10-27 19:39:35 | /tmp | echo 'line1'").unwrap();
         writeln!(
             temp_mhist,
             "2025-10-27 19:40:00 | /tmp | fio --name=test \\"
