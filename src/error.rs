@@ -25,6 +25,10 @@ pub enum Error {
     #[error("JSON error: {0}")]
     Json(#[from] serde_json::Error),
 
+    /// Database operation failed
+    #[error("Database error: {0}")]
+    Database(#[from] rusqlite::Error),
+
     /// Configuration file not found
     #[error("Configuration file not found: {path}")]
     ConfigNotFound { path: PathBuf },
@@ -144,6 +148,7 @@ impl Error {
             Error::Io(_) => "io",
             Error::Regex(_) => "regex",
             Error::Json(_) => "json",
+            Error::Database(_) => "database",
             Error::ConfigNotFound { .. } | Error::ConfigValidation { .. } => "config",
             Error::HistoryFileNotFound { .. } | Error::InvalidHistoryFormat { .. } => "history",
             Error::HomeDirectoryNotFound => "system",

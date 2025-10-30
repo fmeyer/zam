@@ -21,8 +21,10 @@ use std::path::PathBuf;
 
 pub mod cli;
 pub mod config;
+pub mod database;
 pub mod error;
 pub mod history;
+pub mod history_db;
 pub mod redaction;
 pub mod search;
 

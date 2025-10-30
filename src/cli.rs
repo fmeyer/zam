@@ -5,8 +5,10 @@
 //! shell history with advanced features.
 
 use crate::config::Config;
+use crate::database::{Database, DatabaseStats, Host, Session, Token};
 use crate::error::{Error, Result};
 use crate::history::HistoryManager;
+use crate::history_db::HistoryManagerDb;
 use crate::search::{SearchEngine, SearchQuery};
 use clap::{Args, Parser, Subcommand};
 use std::io::{self, Write};
@@ -33,6 +35,14 @@ pub struct Cli {
     /// Disable colored output
     #[arg(long, global = true)]
     pub no_color: bool,
+
+    /// Use database backend instead of file-based (default: auto-detect)
+    #[arg(long, global = true)]
+    pub use_db: bool,
+
+    /// Force file-based backend
+    #[arg(long, global = true)]
+    pub use_file: bool,
 
     #[command(subcommand)]
     pub command: Commands,
@@ -64,6 +74,16 @@ pub enum Commands {
     Frequent(FrequentArgs),
     /// Validate redaction patterns
     Validate(ValidateArgs),
+    /// Migrate from legacy .mhist file to database
+    Migrate(MigrateArgs),
+    /// Merge databases from different machines
+    Merge(MergeArgs),
+    /// Manage and retrieve stored tokens
+    Tokens(TokensArgs),
+    /// List and manage hosts
+    Hosts(HostsArgs),
+    /// List and manage session
+    Session(SessionArgs),
 }
 
 #[derive(Args)]
@@ -325,6 +345,93 @@ pub enum ShellType {
     Fish,
 }
 
+#[derive(Args)]
+pub struct MigrateArgs {
+    /// Path to legacy .mhist file
+    #[arg(value_name = "MHIST_FILE")]
+    pub mhist_file: PathBuf,
+
+    /// Show what would be migrated without actually migrating
+    #[arg(long)]
+    pub dry_run: bool,
+
+    /// Show progress during migration
+    #[arg(long)]
+    pub progress: bool,
+}
+
+#[derive(Args)]
+pub struct MergeArgs {
+    /// Path to database file to merge from
+    #[arg(value_name = "DB_FILE")]
+    pub db_file: PathBuf,
+
+    /// Show what would be merged without actually merging
+    #[arg(long)]
+    pub dry_run: bool,
+
+    /// Show progress during merge
+    #[arg(long)]
+    pub progress: bool,
+}
+
+#[derive(Args)]
+pub struct TokensArgs {
+    /// Filter by session ID
+    #[arg(short = 'S', long)]
+    pub session: Option<String>,
+
+    /// Filter by directory
+    #[arg(short = 'D', long)]
+    pub directory: Option<String>,
+
+    /// Filter by command ID
+    #[arg(short = 'C', long)]
+    pub command_id: Option<i64>,
+
+    /// Show token values (use with caution!)
+    #[arg(long)]
+    pub show_values: bool,
+
+    /// Export tokens to file
+    #[arg(short = 'O', long)]
+    pub output: Option<PathBuf>,
+}
+
+#[derive(Args)]
+pub struct HostsArgs {
+    /// List all hosts
+    #[arg(short = 'L', long)]
+    pub list: bool,
+
+    /// Show sessions for a specific host
+    #[arg(short = 'S', long)]
+    pub show_sessions: Option<i64>,
+
+    /// Show detailed information
+    #[arg(short = 'D', long)]
+    pub detailed: bool,
+}
+
+#[derive(Args)]
+pub struct SessionsArgs {
+    /// Filter by host ID
+    #[arg(short = 'H', long)]
+    pub host_id: Option<i64>,
+
+    /// Show active sessions only
+    #[arg(short = 'A', long)]
+    pub active: bool,
+
+    /// Show commands in session
+    #[arg(short = 'C', long)]
+    pub show_commands: Option<String>,
+
+    /// Show detailed information
+    #[arg(short = 'D', long)]
+    pub detailed: bool,
+}
+
 #[derive(clap::ValueEnum, Clone)]
 pub enum ExportFormat {
     Json,
@@ -334,9 +441,14 @@ pub enum ExportFormat {
 }
 
 /// CLI application handler
+enum HistoryBackend {
+    File(HistoryManager),
+    Database(HistoryManagerDb),
+}
+
 pub struct CliApp {
     config: Config,
-    history_manager: HistoryManager,
+    backend: HistoryBackend,
     search_engine: SearchEngine,
     verbose: bool,
     quiet: bool,
@@ -354,8 +466,22 @@ impl CliApp {
             Config::load().unwrap_or_else(|_| Config::default())
         };
 
-        // Initialize history manager
-        let history_manager = HistoryManager::new(config.clone())?;
+        // Determine which backend to use
+        let backend = if cli.use_file {
+            // Explicitly use file backend
+            HistoryBackend::File(HistoryManager::new(config.clone())?)
+        } else if cli.use_db {
+            // Explicitly use database backend
+            HistoryBackend::Database(HistoryManagerDb::new(config.clone())?)
+        } else {
+            // Auto-detect: use database if .db file exists, otherwise use file
+            let db_path = config.history_file.with_extension("db");
+            if db_path.exists() {
+                HistoryBackend::Database(HistoryManagerDb::new(config.clone())?)
+            } else {
+                HistoryBackend::File(HistoryManager::new(config.clone())?)
+            }
+        };
 
         // Initialize search engine
         let search_engine = SearchEngine::with_config(
@@ -369,7 +495,7 @@ impl CliApp {
 
         Ok(Self {
             config,
-            history_manager,
+            backend,
             search_engine,
             verbose: cli.verbose,
             quiet: cli.quiet,
@@ -392,6 +518,11 @@ impl CliApp {
             Commands::Recent(args) => self.handle_recent(args),
             Commands::Frequent(args) => self.handle_frequent(args),
             Commands::Validate(args) => self.handle_validate(args),
+            Commands::Migrate(args) => self.handle_migrate(args),
+            Commands::Merge(args) => self.handle_merge(args),
+            Commands::Tokens(args) => self.handle_tokens(args),
+            Commands::Hosts(args) => self.handle_hosts(args),
+            Commands::Sessions(args) => self.handle_sessions(args),
         }
     }
 
@@ -411,12 +542,18 @@ impl CliApp {
             None
         };
 
-        // Log the command
-        if let Some(timestamp) = timestamp {
-            self.history_manager
-                .log_command_with_timestamp(&args.command, Some(timestamp))?;
-        } else {
-            self.history_manager.log_command(&args.command)?;
+        // Log the command based on backend
+        match &mut self.backend {
+            HistoryBackend::File(mgr) => {
+                if let Some(timestamp) = timestamp {
+                    mgr.log_command_with_timestamp(&args.command, Some(timestamp))?;
+                } else {
+                    mgr.log_command(&args.command)?;
+                }
+            }
+            HistoryBackend::Database(mgr) => {
+                mgr.log_command_with_timestamp(&args.command, timestamp, None)?;
+            }
         }
 
         if !self.quiet {
@@ -427,7 +564,57 @@ impl CliApp {
     }
 
     fn handle_search(&mut self, args: &SearchArgs) -> Result<()> {
-        let entries = self.history_manager.get_entries()?;
+        // Get entries based on backend
+        let entries = match &self.backend {
+            HistoryBackend::File(mgr) => mgr.get_entries()?,
+            HistoryBackend::Database(mgr) => {
+                // For database, use direct search if no complex filters
+                if args.since.is_none() && args.before.is_none() && !args.regex && !args.exact {
+                    let db_results = mgr.search(
+                        &args.term,
+                        args.directory.as_deref(),
+                        None,
+                        Some(args.limit),
+                    )?;
+
+                    // Display results
+                    for result in &db_results {
+                        let mut output = String::new();
+
+                        if args.timestamps {
+                            output.push_str(&format!(
+                                "{} ",
+                                result.timestamp.format("%Y-%m-%d %H:%M:%S")
+                            ));
+                        }
+
+                        if args.show_dirs {
+                            output.push_str(&format!("{} ", result.directory));
+                        }
+
+                        output.push_str(&result.command);
+                        println!("{}", output);
+                    }
+
+                    if !self.quiet {
+                        println!("\nFound {} results", db_results.len());
+                    }
+                    return Ok(());
+                }
+
+                // Otherwise, get all and use search engine
+                mgr.get_all_commands()?
+                    .into_iter()
+                    .map(|cmd| crate::history::HistoryEntry {
+                        command: cmd.command,
+                        timestamp: cmd.timestamp,
+                        directory: cmd.directory,
+                        redacted: cmd.redacted,
+                        original: None,
+                    })
+                    .collect()
+            }
+        };
 
         // Build search query
         let mut query = SearchQuery::new(args.term.clone());
@@ -537,9 +724,14 @@ impl CliApp {
             return Ok(());
         }
 
-        let imported_count = self
-            .history_manager
-            .import_from_shell(shell_name, args.file.clone())?;
+        let imported_count = match &mut self.backend {
+            HistoryBackend::File(mgr) => mgr.import_from_shell(shell_name, args.file.clone())?,
+            HistoryBackend::Database(mgr) => match args.shell {
+                ShellType::Zsh => mgr.import_from_zsh(args.file.clone())?,
+                ShellType::Bash => mgr.import_from_bash(args.file.clone())?,
+                ShellType::Fish => mgr.import_from_fish(args.file.clone())?,
+            },
+        };
 
         if !self.quiet {
             println!(
@@ -552,7 +744,20 @@ impl CliApp {
     }
 
     fn handle_export(&mut self, args: &ExportArgs) -> Result<()> {
-        let entries = self.history_manager.get_entries()?;
+        let entries = match &self.backend {
+            HistoryBackend::File(mgr) => mgr.get_entries()?,
+            HistoryBackend::Database(mgr) => mgr
+                .get_all_commands()?
+                .into_iter()
+                .map(|cmd| crate::history::HistoryEntry {
+                    command: cmd.command,
+                    timestamp: cmd.timestamp,
+                    directory: cmd.directory,
+                    redacted: cmd.redacted,
+                    original: None,
+                })
+                .collect(),
+        };
 
         // Filter entries if needed
         let filtered_entries: Vec<_> = entries
@@ -625,46 +830,68 @@ impl CliApp {
     }
 
     fn handle_stats(&mut self, args: &StatsArgs) -> Result<()> {
-        let stats = self.history_manager.get_stats();
+        match &self.backend {
+            HistoryBackend::File(mgr) => {
+                let stats = mgr.get_stats();
 
-        println!("History Statistics");
-        println!("==================");
-        println!("Total entries: {}", stats.total_entries);
-        println!("Unique commands: {}", stats.unique_commands);
-        println!("Redacted entries: {}", stats.redacted_entries);
-        println!("Duplicates filtered: {}", stats.duplicates_filtered);
+                println!("History Statistics");
+                println!("==================");
+                println!("Total entries: {}", stats.total_entries);
+                println!("Unique commands: {}", stats.unique_commands);
+                println!("Redacted entries: {}", stats.redacted_entries);
+                println!("Duplicates filtered: {}", stats.duplicates_filtered);
 
-        if args.redaction {
-            println!("\nRedaction Statistics");
-            println!("===================");
-            println!(
-                "Total commands processed: {}",
-                stats.redaction_stats.total_commands
-            );
-            println!(
-                "Commands redacted: {}",
-                stats.redaction_stats.redacted_commands
-            );
-            println!(
-                "Environment variables redacted: {}",
-                stats.redaction_stats.env_vars_redacted
-            );
+                if args.redaction {
+                    println!("\nRedaction Statistics");
+                    println!("===================");
+                    println!(
+                        "Total commands processed: {}",
+                        stats.redaction_stats.total_commands
+                    );
+                    println!(
+                        "Commands redacted: {}",
+                        stats.redaction_stats.redacted_commands
+                    );
+                    println!(
+                        "Environment variables redacted: {}",
+                        stats.redaction_stats.env_vars_redacted
+                    );
 
-            if !stats.redaction_stats.patterns_matched.is_empty() {
-                println!("\nPatterns matched:");
-                for (pattern, count) in &stats.redaction_stats.patterns_matched {
-                    println!("  {}: {}", pattern, count);
+                    if !stats.redaction_stats.patterns_matched.is_empty() {
+                        println!("\nPatterns matched:");
+                        for (pattern, count) in &stats.redaction_stats.patterns_matched {
+                            println!("  {}: {}", pattern, count);
+                        }
+                    }
+                }
+
+                if args.directories {
+                    println!("\nDirectory Statistics");
+                    println!("===================");
+                    let mut dirs: Vec<_> = stats.common_directories.iter().collect();
+                    dirs.sort_by(|a, b| b.1.cmp(a.1));
+                    for (dir, count) in dirs.iter().take(10) {
+                        println!("  {}: {}", dir, count);
+                    }
                 }
             }
-        }
+            HistoryBackend::Database(mgr) => {
+                let stats = mgr.get_stats()?;
 
-        if args.directories {
-            println!("\nDirectory Statistics");
-            println!("===================");
-            let mut dirs: Vec<_> = stats.common_directories.iter().collect();
-            dirs.sort_by(|a, b| b.1.cmp(a.1));
-            for (dir, count) in dirs.iter().take(10) {
-                println!("  {}: {}", dir, count);
+                println!("History Statistics (Database)");
+                println!("==============================");
+                println!("Total commands: {}", stats.total_commands);
+                println!("Total sessions: {}", stats.total_sessions);
+                println!("Total hosts: {}", stats.total_hosts);
+                println!("Redacted commands: {}", stats.redacted_commands);
+                println!("Stored tokens: {}", stats.stored_tokens);
+
+                if let Some(oldest) = stats.oldest_entry {
+                    println!("Oldest entry: {}", oldest.format("%Y-%m-%d %H:%M:%S"));
+                }
+                if let Some(newest) = stats.newest_entry {
+                    println!("Newest entry: {}", newest.format("%Y-%m-%d %H:%M:%S"));
+                }
             }
         }
 
@@ -683,7 +910,10 @@ impl CliApp {
             }
         }
 
-        self.history_manager.clear()?;
+        match &self.backend {
+            HistoryBackend::File(mgr) => mgr.clear()?,
+            HistoryBackend::Database(mgr) => mgr.clear()?,
+        }
 
         if !self.quiet {
             println!("History cleared successfully");
@@ -755,7 +985,52 @@ impl CliApp {
     }
 
     fn handle_recent(&mut self, args: &RecentArgs) -> Result<()> {
-        let mut entries = self.history_manager.get_entries()?;
+        let entries = match &self.backend {
+            HistoryBackend::File(mgr) => {
+                let mut entries = mgr.get_entries()?;
+                entries.reverse();
+                entries.truncate(args.count);
+                entries
+            }
+            HistoryBackend::Database(mgr) => mgr
+                .get_recent(args.count)?
+                .into_iter()
+                .map(|cmd| crate::history::HistoryEntry {
+                    command: cmd.command,
+                    timestamp: cmd.timestamp,
+                    directory: cmd.directory,
+                    redacted: cmd.redacted,
+                    original: None,
+                })
+                .collect(),
+        };
+
+        for entry in entries {
+            if args.timestamps {
+                println!("{} {}", entry.formatted_timestamp(), entry.command);
+            } else {
+                println!("{}", entry.command);
+            }
+        }
+
+        Ok(())
+    }
+
+    fn handle_fzf(&mut self, args: &FzfArgs) -> Result<()> {
+        let entries = match &self.backend {
+            HistoryBackend::File(mgr) => mgr.get_entries()?,
+            HistoryBackend::Database(mgr) => mgr
+                .get_all_commands()?
+                .into_iter()
+                .map(|cmd| crate::history::HistoryEntry {
+                    command: cmd.command,
+                    timestamp: cmd.timestamp,
+                    directory: cmd.directory,
+                    redacted: cmd.redacted,
+                    original: None,
+                })
+                .collect(),
+        };
 
         // Filter by directory if specified
         if let Some(dir) = &args.directory {
@@ -783,7 +1058,20 @@ impl CliApp {
     }
 
     fn handle_frequent(&mut self, args: &FrequentArgs) -> Result<()> {
-        let entries = self.history_manager.get_entries()?;
+        let entries = match &self.backend {
+            HistoryBackend::File(mgr) => mgr.get_entries()?,
+            HistoryBackend::Database(mgr) => mgr
+                .get_all_commands()?
+                .into_iter()
+                .map(|cmd| crate::history::HistoryEntry {
+                    command: cmd.command,
+                    timestamp: cmd.timestamp,
+                    directory: cmd.directory,
+                    redacted: cmd.redacted,
+                    original: None,
+                })
+                .collect(),
+        };
 
         if args.directories {
             let frequent_dirs = self.search_engine.get_frequent_directories(&entries)?;
@@ -928,8 +1216,199 @@ bind \cr mortimer_search
 
     fn verbose_println(&self, message: &str) {
         if self.verbose && !self.quiet {
-            eprintln!("{}", message);
+            eprintln!("[verbose] {}", message);
         }
+    }
+
+    fn handle_migrate(&mut self, args: &MigrateArgs) -> Result<()> {
+        let mgr = match &mut self.backend {
+            HistoryBackend::Database(mgr) => mgr,
+            HistoryBackend::File(_) => {
+                return Err(Error::custom(
+                    "Migration requires database backend. Use --use-db flag.",
+                ));
+            }
+        };
+
+        if !self.quiet {
+            println!("Migrating from .mhist file: {}", args.mhist_file.display());
+        }
+
+        if args.dry_run {
+            println!("DRY RUN: Would migrate from {}", args.mhist_file.display());
+            return Ok(());
+        }
+
+        let count = mgr.import_from_mhist(&args.mhist_file)?;
+
+        if !self.quiet {
+            println!("Successfully migrated {} commands", count);
+        }
+
+        Ok(())
+    }
+
+    fn handle_merge(&mut self, args: &MergeArgs) -> Result<()> {
+        let mgr = match &mut self.backend {
+            HistoryBackend::Database(mgr) => mgr,
+            HistoryBackend::File(_) => {
+                return Err(Error::custom(
+                    "Merge requires database backend. Use --use-db flag.",
+                ));
+            }
+        };
+
+        if !self.quiet {
+            println!("Merging database from: {}", args.db_file.display());
+        }
+
+        if args.dry_run {
+            println!("DRY RUN: Would merge from {}", args.db_file.display());
+            return Ok(());
+        }
+
+        let count = mgr.merge_from_database(&args.db_file)?;
+
+        if !self.quiet {
+            println!("Successfully merged {} commands", count);
+        }
+
+        Ok(())
+    }
+
+    fn handle_tokens(&mut self, args: &TokensArgs) -> Result<()> {
+        let mgr = match &self.backend {
+            HistoryBackend::Database(mgr) => mgr,
+            HistoryBackend::File(_) => {
+                return Err(Error::custom(
+                    "Token management requires database backend. Use --use-db flag.",
+                ));
+            }
+        };
+
+        let tokens = if let Some(cmd_id) = args.command_id {
+            mgr.get_tokens_for_command(cmd_id)?
+        } else if let Some(ref session) = args.session {
+            mgr.get_tokens_by_session(session)?
+        } else if let Some(ref dir) = args.directory {
+            mgr.get_tokens_by_directory(dir)?
+        } else {
+            return Err(Error::invalid_arguments(
+                "Must specify --command-id, --session, or --directory",
+            ));
+        };
+
+        if tokens.is_empty() {
+            if !self.quiet {
+                println!("No tokens found");
+            }
+            return Ok(());
+        }
+
+        println!("=== Stored Tokens ===\n");
+        for token in &tokens {
+            println!("ID: {}", token.id);
+            println!("Command ID: {}", token.command_id);
+            println!("Type: {}", token.token_type);
+            println!("Placeholder: {}", token.placeholder);
+            if args.show_values {
+                println!("Value: {}", token.original_value);
+            } else {
+                println!("Value: <hidden>");
+            }
+            println!("Created: {}", token.created_at.format("%Y-%m-%d %H:%M:%S"));
+            println!();
+        }
+
+        if !self.quiet {
+            println!("Total tokens: {}", tokens.len());
+        }
+
+        Ok(())
+    }
+
+    fn handle_hosts(&mut self, args: &HostsArgs) -> Result<()> {
+        let mgr = match &self.backend {
+            HistoryBackend::Database(mgr) => mgr,
+            HistoryBackend::File(_) => {
+                return Err(Error::custom(
+                    "Host management requires database backend. Use --use-db flag.",
+                ));
+            }
+        };
+
+        if let Some(host_id) = args.show_sessions {
+            let sessions = mgr.get_sessions_for_host(host_id)?;
+            println!("=== Sessions for Host ID {} ===\n", host_id);
+            for session in sessions {
+                println!("Session ID: {}", session.id);
+                println!(
+                    "Started: {}",
+                    session.started_at.format("%Y-%m-%d %H:%M:%S")
+                );
+                if let Some(ended) = session.ended_at {
+                    println!("Ended: {}", ended.format("%Y-%m-%d %H:%M:%S"));
+                } else {
+                    println!("Ended: <active>");
+                }
+                println!();
+            }
+        } else {
+            let hosts = mgr.get_hosts()?;
+            println!("=== Hosts ===\n");
+            for host in hosts {
+                println!("ID: {}", host.id);
+                println!("Hostname: {}", host.hostname);
+                println!("Created: {}", host.created_at.format("%Y-%m-%d %H:%M:%S"));
+                println!();
+            }
+        }
+
+        Ok(())
+    }
+
+    fn handle_sessions(&mut self, args: &SessionsArgs) -> Result<()> {
+        let mgr = match &self.backend {
+            HistoryBackend::Database(mgr) => mgr,
+            HistoryBackend::File(_) => {
+                return Err(Error::custom(
+                    "Session management requires database backend. Use --use-db flag.",
+                ));
+            }
+        };
+
+        if let Some(host_id) = args.host_id {
+            let sessions = mgr.get_sessions_for_host(host_id)?;
+
+            let filtered: Vec<_> = if args.active {
+                sessions
+                    .into_iter()
+                    .filter(|s| s.ended_at.is_none())
+                    .collect()
+            } else {
+                sessions
+            };
+
+            println!("=== Sessions ===\n");
+            for session in filtered {
+                println!("ID: {}", session.id);
+                println!("Host ID: {}", session.host_id);
+                println!(
+                    "Started: {}",
+                    session.started_at.format("%Y-%m-%d %H:%M:%S")
+                );
+                if let Some(ended) = session.ended_at {
+                    println!("Ended: {}", ended.format("%Y-%m-%d %H:%M:%S"));
+                } else {
+                    println!("Status: Active");
+                }
+                println!();
+            }
+        } else {
+            println!("Must specify --host-id");
+        }
+
+        Ok(())
     }
 }
 
