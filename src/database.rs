@@ -74,6 +74,7 @@ pub struct Database {
 
 impl Database {
     /// Create a new database connection and initialize schema
+    #[must_use = "Database connection must be used"]
     pub fn new(db_path: &Path) -> Result<Self> {
         // Create parent directory if it doesn't exist
         if let Some(parent) = db_path.parent() {
@@ -296,6 +297,7 @@ impl Database {
     }
 
     /// Get tokens for a specific command
+    #[must_use = "Token query results should be used"]
     pub fn get_tokens_for_command(&self, command_id: CommandId) -> Result<Vec<Token>> {
         let mut stmt = self.conn.prepare(
             "SELECT id, command_id, token_type, placeholder, original_value, created_at
@@ -380,6 +382,7 @@ impl Database {
     }
 
     /// Search commands
+    #[must_use = "Search results should be used"]
     pub fn search_commands(
         &self,
         query: &str,
@@ -438,6 +441,7 @@ impl Database {
     }
 
     /// Get recent commands
+    #[must_use = "Query results should be used"]
     pub fn get_recent_commands(&self, limit: usize) -> Result<Vec<CommandEntry>> {
         let mut stmt = self.conn.prepare(
             "SELECT id, session_id, command, timestamp, directory, redacted, exit_code
@@ -467,6 +471,7 @@ impl Database {
     }
 
     /// Get all commands (for export/migration)
+    #[must_use = "Query results should be used"]
     pub fn get_all_commands(&self) -> Result<Vec<CommandEntry>> {
         let mut stmt = self.conn.prepare(
             "SELECT id, session_id, command, timestamp, directory, redacted, exit_code

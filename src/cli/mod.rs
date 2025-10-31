@@ -18,6 +18,7 @@ use crate::history_db::HistoryManagerDb;
 use crate::search::SearchEngine;
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
+use tracing::debug;
 
 /// Mortimer - Enhanced shell history manager with sensitive data redaction
 #[derive(Parser)]
@@ -159,15 +160,13 @@ impl CliApp {
 
     /// Run the CLI application
     pub fn run(&mut self, command: &Commands) -> Result<()> {
-        // Show backend info in verbose mode
-        if self.verbose && !self.quiet {
-            match &self.backend {
-                HistoryBackend::File(_) => {
-                    eprintln!("[verbose] Using file-based backend");
-                }
-                HistoryBackend::Database(_) => {
-                    eprintln!("[verbose] Using SQLite database backend");
-                }
+        // Log backend info
+        match &self.backend {
+            HistoryBackend::File(_) => {
+                debug!("Using file-based backend");
+            }
+            HistoryBackend::Database(_) => {
+                debug!("Using SQLite database backend");
             }
         }
 

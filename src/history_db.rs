@@ -14,6 +14,7 @@ use chrono::{DateTime, Utc};
 use regex::Regex;
 use std::env;
 use std::path::{Path, PathBuf};
+use tracing::{debug, info};
 
 /// Database-backed history manager
 pub struct HistoryManagerDb {
@@ -82,6 +83,9 @@ impl HistoryManagerDb {
         let (redacted_command, tokens) = if self.config.enable_redaction {
             let (redacted, extracted) = self.redact_and_extract_tokens(command)?;
             let was_redacted = redacted != command;
+            if was_redacted {
+                debug!("Redacted sensitive data from command, extracted {} tokens", extracted.len());
+            }
             (redacted, if was_redacted { extracted } else { vec![] })
         } else {
             (command.to_string(), vec![])
@@ -95,6 +99,8 @@ impl HistoryManagerDb {
             !tokens.is_empty(),
             exit_code,
         )?;
+
+        debug!("Logged command to database with ID {}", command_id);
 
         // Store extracted tokens
         for token in tokens {
@@ -231,7 +237,10 @@ impl HistoryManagerDb {
             });
         }
 
-        self.db.import_from_mhist(path)
+        info!("Importing from legacy .mhist file: {}", path.display());
+        let count = self.db.import_from_mhist(path)?;
+        info!("Successfully imported {} commands", count);
+        Ok(count)
     }
 
     /// Import from bash history

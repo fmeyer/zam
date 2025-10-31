@@ -104,6 +104,7 @@ static BUILTIN_PATTERNS_CACHE: Mutex<Option<Vec<CompiledPattern>>> = Mutex::new(
 
 impl RedactionEngine {
     /// Create a new redaction engine with default patterns
+    #[must_use = "Redaction engine must be used"]
     pub fn new() -> Result<Self> {
         Self::with_config(
             true,
@@ -117,6 +118,7 @@ impl RedactionEngine {
     }
 
     /// Create a new redaction engine with custom configuration
+    #[must_use = "Redaction engine must be used"]
     pub fn with_config(
         use_builtin: bool,
         custom_patterns: Vec<String>,
@@ -204,6 +206,7 @@ impl RedactionEngine {
     }
 
     /// Redact sensitive information from a command
+    #[must_use = "Redacted command should be used"]
     pub fn redact(&self, command: &str) -> Result<String> {
         let mut result = command.to_string();
 

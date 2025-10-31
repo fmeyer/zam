@@ -56,6 +56,7 @@ pub struct HistoryManager {
 
 impl HistoryManager {
     /// Create a new history manager with the given configuration
+    #[must_use = "History manager must be used to log commands"]
     pub fn new(config: Config) -> Result<Self> {
         let redaction_engine = RedactionEngine::with_config(
             config.redaction.use_builtin_patterns,
@@ -215,6 +216,7 @@ impl HistoryManager {
     }
 
     /// Get all history entries
+    #[must_use = "Query results should be used"]
     pub fn get_entries(&self) -> Result<Vec<HistoryEntry>> {
         let file = File::open(&self.history_file)?;
         let reader = BufReader::new(file);
@@ -231,6 +233,7 @@ impl HistoryManager {
     }
 
     /// Search history entries
+    #[must_use = "Search results should be used"]
     pub fn search(&self, query: &str, directory_filter: Option<&str>) -> Result<Vec<HistoryEntry>> {
         let entries = self.get_entries()?;
         let mut results = Vec::new();
