@@ -745,6 +745,12 @@ impl Database {
         self.conn.execute("DELETE FROM hosts", [])?;
         Ok(())
     }
+
+    /// Delete a specific command by ID
+    pub fn delete_command(&self, id: CommandId) -> Result<()> {
+        self.conn.execute("DELETE FROM commands WHERE id = ?1", [id.0])?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]

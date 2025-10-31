@@ -36,26 +36,16 @@ log_command() {
 autoload -Uz add-zsh-hook
 add-zsh-hook preexec log_command
 
-# Custom history search with Ctrl-R for fuzzy search
-mortimer-history-widget() {
-    BUFFER=$(mortimer fzf | fzf --height 50% --reverse --tac 2>/dev/null)
+# Interactive history search with fzf (Ctrl+R)
+mortimer-fzf-widget() {
+    BUFFER=$(mortimer fzf | fzf --height 50% --reverse --tac 2>/dev/tty)
     CURSOR=$#BUFFER
     zle reset-prompt
 }
+zle -N mortimer-fzf-widget
 
-# Custom history search with Ctrl-E for exact match
-mortimer-history-exact-widget() {
-    BUFFER=$(mortimer fzf | fzf -e -i --height 50% --reverse --tac 2>/dev/null)
-    CURSOR=$#BUFFER
-    zle reset-prompt
-}
-
-zle -N mortimer-history-widget
-zle -N mortimer-history-exact-widget
-
-# Replace default Ctrl-R with the custom widget
-bindkey '^R' mortimer-history-widget
-bindkey '^E' mortimer-history-exact-widget
+# Replace default Ctrl-R with fzf search
+bindkey '^R' mortimer-fzf-widget
 "#
     .to_string()
 }
@@ -72,8 +62,8 @@ log_command() {
 # Hook to log commands after execution
 PROMPT_COMMAND="log_command \"\$BASH_COMMAND\"; $PROMPT_COMMAND"
 
-# Custom history search with Ctrl-R
-bind -x '"\C-r": "READLINE_LINE=$(mortimer fzf | fzf --height 50% --reverse --tac 2>/dev/null); READLINE_POINT=${#READLINE_LINE}"'
+# Interactive history search with fzf (Ctrl+R)
+bind -x '"\C-r": "READLINE_LINE=$(mortimer fzf | fzf --height 50% --reverse --tac 2>/dev/tty); READLINE_POINT=${#READLINE_LINE}"'
 "#
     .to_string()
 }
@@ -87,17 +77,17 @@ function mortimer_log_command --on-event fish_preexec
     mortimer log "$argv[1]" &
 end
 
-# Custom history search with Ctrl-R
-function mortimer_search
-    set -l result (mortimer fzf | fzf --height 50% --reverse --tac 2>/dev/null)
+# Interactive history search with fzf (Ctrl+R)
+function mortimer_fzf_search
+    set -l result (mortimer fzf | fzf --height 50% --reverse --tac 2>/dev/tty)
     if test -n "$result"
         commandline -r "$result"
     end
     commandline -f repaint
 end
 
-# Bind Ctrl-R to custom search
-bind \cr mortimer_search
+# Replace default Ctrl-R with fzf search
+bind \cr mortimer_fzf_search
 "#
     .to_string()
 }

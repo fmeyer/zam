@@ -27,6 +27,8 @@ pub struct HistoryEntry {
     pub redacted: bool,
     /// Original command before redaction (for debugging, if enabled)
     pub original: Option<String>,
+    /// Whether this entry is marked as deleted
+    pub deleted: bool,
 }
 
 /// Statistics about the history
@@ -134,6 +136,7 @@ impl HistoryManager {
             } else {
                 None
             },
+            deleted: false,
         };
 
         // Check for duplicates if configured
@@ -355,7 +358,7 @@ impl HistoryManager {
 
         let timestamp_str = parts[0];
         let directory = parts[1].to_string();
-        let command = parts[2].to_string();
+        let mut command = parts[2].to_string();
 
         // Parse timestamp
         let timestamp = chrono::NaiveDateTime::parse_from_str(timestamp_str, "%Y-%m-%d %H:%M:%S")
@@ -363,6 +366,12 @@ impl HistoryManager {
                 timestamp: timestamp_str.to_string(),
             })?
             .and_utc();
+
+        // Detect if the command was deleted
+        let was_deleted = command.starts_with("[DELETED] ");
+        if was_deleted {
+            command = command.trim_start_matches("[DELETED] ").to_string();
+        }
 
         // Detect if the command was redacted by checking for redaction markers
         let was_redacted = command.contains("<redacted>");
@@ -372,6 +381,7 @@ impl HistoryManager {
             timestamp,
             directory,
             redacted: was_redacted,
+            deleted: was_deleted,
             original: None,
         }))
     }
@@ -409,6 +419,7 @@ impl HistoryManager {
                 timestamp: datetime,
                 directory: "<imported>".to_string(),
                 redacted: was_redacted,
+            deleted: false,
                 original: None,
             }))
         } else {
@@ -436,6 +447,7 @@ impl HistoryManager {
             timestamp: Utc::now(), // No timestamp available
             directory: "<imported>".to_string(),
             redacted: was_redacted,
+            deleted: false,
             original: None,
         }))
     }
@@ -460,6 +472,7 @@ impl HistoryManager {
                 timestamp: Utc::now(), // Would need to parse next lines for timestamp
                 directory: "<imported>".to_string(),
                 redacted: was_redacted,
+            deleted: false,
                 original: None,
             }))
         } else {
@@ -534,6 +547,7 @@ impl HistoryEntry {
             directory,
             redacted: false,
             original: None,
+            deleted: false,
         }
     }
 
@@ -566,6 +580,7 @@ impl From<crate::database::CommandEntry> for HistoryEntry {
             directory: cmd.directory,
             redacted: cmd.redacted,
             original: None,
+            deleted: false,  // Database entries aren't deleted by default
         }
     }
 }
@@ -593,6 +608,45 @@ impl crate::backend::HistoryProvider for HistoryManager {
 
     fn clear(&mut self) -> Result<()> {
         self.clear()
+    }
+
+    fn delete_entries(&mut self, indices: &[usize]) -> Result<usize> {
+        if indices.is_empty() {
+            return Ok(0);
+        }
+
+        // Read all entries
+        let mut entries = self.get_entries()?;
+        let mut deleted_count = 0;
+
+        // Mark entries as deleted
+        for &idx in indices {
+            if let Some(entry) = entries.get_mut(idx) {
+                if !entry.deleted {
+                    entry.deleted = true;
+                    deleted_count += 1;
+                }
+            }
+        }
+
+        // Rewrite the history file with deleted markers
+        let file = File::create(&self.history_file)?;
+        let mut writer = BufWriter::new(file);
+
+        for entry in &entries {
+            let deleted_marker = if entry.deleted { "[DELETED] " } else { "" };
+            let line = format!(
+                "{} | {} | {}{}\n",
+                entry.timestamp.format("%Y-%m-%d %H:%M:%S"),
+                entry.directory,
+                deleted_marker,
+                entry.command
+            );
+            writer.write_all(line.as_bytes())?;
+        }
+        writer.flush()?;
+
+        Ok(deleted_count)
     }
 }
 

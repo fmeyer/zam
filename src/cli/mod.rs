@@ -78,6 +78,8 @@ pub enum Commands {
     Recent(RecentArgs),
     /// Show frequent commands
     Frequent(FrequentArgs),
+    /// Interactive history management (browse/delete)
+    Manage,
     /// Validate redaction patterns
     Validate(ValidateArgs),
     /// Show backend status and configuration
@@ -125,8 +127,8 @@ impl CliApp {
         let backend = if cli.use_file {
             // Explicitly use file backend
             HistoryBackend::File(HistoryManager::new(config.clone())?)
-        } else if cli.use_db {
-            // Explicitly use database backend
+        } else if cli.use_db || std::env::var("MORTIMER_USE_DB").is_ok() {
+            // Explicitly use database backend (via flag or env var)
             HistoryBackend::Database(HistoryManagerDb::new(config.clone())?)
         } else {
             // Auto-detect: use database if .db file exists, otherwise use file
@@ -182,6 +184,7 @@ impl CliApp {
             Commands::Shell(args) => handle_shell(self, args),
             Commands::Recent(args) => handle_recent(self, args),
             Commands::Frequent(args) => handle_frequent(self, args),
+            Commands::Manage => handle_manage(self),
             Commands::Validate(args) => handle_validate(self, args),
             Commands::Status => handle_status(self),
             Commands::Migrate(args) => handle_migrate(self, args),

@@ -381,6 +381,32 @@ impl crate::backend::HistoryProvider for HistoryManagerDb {
     fn clear(&mut self) -> Result<()> {
         self.db.clear()
     }
+
+    fn delete_entries(&mut self, indices: &[usize]) -> Result<usize> {
+        if indices.is_empty() {
+            return Ok(0);
+        }
+
+        // Get all command IDs in order
+        let entries = self.get_all_commands()?;
+
+        // Collect command IDs to delete
+        let mut ids_to_delete = Vec::new();
+        for &idx in indices {
+            if let Some(entry) = entries.get(idx) {
+                ids_to_delete.push(entry.id);
+            }
+        }
+
+        // Delete from database
+        let mut deleted = 0;
+        for id in ids_to_delete {
+            self.db.delete_command(id)?;
+            deleted += 1;
+        }
+
+        Ok(deleted)
+    }
 }
 
 #[cfg(test)]

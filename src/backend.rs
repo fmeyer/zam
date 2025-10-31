@@ -39,4 +39,10 @@ pub trait HistoryProvider {
     ///
     /// Removes all entries from the history.
     fn clear(&mut self) -> Result<()>;
+
+    /// Delete entries by indices
+    ///
+    /// Removes specific entries from history by their position.
+    /// Indices should be in the order returned by get_entries().
+    fn delete_entries(&mut self, indices: &[usize]) -> Result<usize>;
 }

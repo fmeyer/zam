@@ -132,6 +132,12 @@ pub fn handle_status(app: &mut CliApp) -> Result<()> {
         }
     }
 
+    // Show environment variables
+    if std::env::var("MORTIMER_USE_DB").is_ok() {
+        println!("Environment:");
+        println!("  MORTIMER_USE_DB: set (forcing database backend)\n");
+    }
+
     // Show configuration
     println!("Configuration:");
     println!("  Redaction enabled: {}", app.config.enable_redaction);
