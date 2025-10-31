@@ -25,14 +25,17 @@ pub mod database;
 pub mod error;
 pub mod history;
 pub mod history_db;
+pub mod prelude;
 pub mod redaction;
 pub mod search;
+pub mod types;
 
 pub use config::Config;
 pub use error::{Error, Result};
 pub use history::HistoryManager;
 pub use redaction::RedactionEngine;
 pub use search::SearchEngine;
+pub use types::{CommandId, HostId, SessionId};
 
 /// The default history file name
 pub const DEFAULT_HISTORY_FILE: &str = ".mhist";

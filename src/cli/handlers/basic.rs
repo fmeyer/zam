@@ -84,13 +84,7 @@ pub fn handle_search(app: &mut CliApp, args: &SearchArgs) -> Result<()> {
             // Otherwise, get all and use search engine
             mgr.get_all_commands()?
                 .into_iter()
-                .map(|cmd| crate::history::HistoryEntry {
-                    command: cmd.command,
-                    timestamp: cmd.timestamp,
-                    directory: cmd.directory,
-                    redacted: cmd.redacted,
-                    original: None,
-                })
+                .map(Into::into)
                 .collect()
         }
     };
@@ -198,13 +192,7 @@ pub fn handle_recent(app: &mut CliApp, args: &RecentArgs) -> Result<()> {
         HistoryBackend::Database(mgr) => mgr
             .get_recent(args.count)?
             .into_iter()
-            .map(|cmd| crate::history::HistoryEntry {
-                command: cmd.command,
-                timestamp: cmd.timestamp,
-                directory: cmd.directory,
-                redacted: cmd.redacted,
-                original: None,
-            })
+            .map(Into::into)
             .collect(),
     };
 
@@ -225,13 +213,7 @@ pub fn handle_fzf(app: &mut CliApp, args: &FzfArgs) -> Result<()> {
         HistoryBackend::Database(mgr) => mgr
             .get_all_commands()?
             .into_iter()
-            .map(|cmd| crate::history::HistoryEntry {
-                command: cmd.command,
-                timestamp: cmd.timestamp,
-                directory: cmd.directory,
-                redacted: cmd.redacted,
-                original: None,
-            })
+            .map(Into::into)
             .collect(),
     };
 
@@ -269,13 +251,7 @@ pub fn handle_frequent(app: &mut CliApp, args: &FrequentArgs) -> Result<()> {
         HistoryBackend::Database(mgr) => mgr
             .get_all_commands()?
             .into_iter()
-            .map(|cmd| crate::history::HistoryEntry {
-                command: cmd.command,
-                timestamp: cmd.timestamp,
-                directory: cmd.directory,
-                redacted: cmd.redacted,
-                original: None,
-            })
+            .map(Into::into)
             .collect(),
     };
 

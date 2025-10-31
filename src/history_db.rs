@@ -200,7 +200,7 @@ impl HistoryManagerDb {
 
     /// Get tokens for a specific command
     pub fn get_tokens_for_command(&self, command_id: i64) -> Result<Vec<crate::database::Token>> {
-        self.db.get_tokens_for_command(command_id)
+        self.db.get_tokens_for_command(crate::types::CommandId::new(command_id))
     }
 
     /// Get tokens by session ID
@@ -342,7 +342,7 @@ impl HistoryManagerDb {
 
     /// Get sessions for a host
     pub fn get_sessions_for_host(&self, host_id: i64) -> Result<Vec<crate::database::Session>> {
-        self.db.get_sessions_for_host(host_id)
+        self.db.get_sessions_for_host(crate::types::HostId::new(host_id))
     }
 
     /// Clear all data (use with caution!)
@@ -434,7 +434,7 @@ mod tests {
         manager.log_command("export PASSWORD=mypass123").unwrap();
 
         let commands = manager.get_recent(1).unwrap();
-        let tokens = manager.get_tokens_for_command(commands[0].id).unwrap();
+        let tokens = manager.get_tokens_for_command(commands[0].id.as_i64()).unwrap();
 
         assert!(!tokens.is_empty());
     }

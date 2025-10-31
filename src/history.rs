@@ -550,6 +550,19 @@ impl HistoryEntry {
     }
 }
 
+/// Conversion from database CommandEntry to HistoryEntry
+impl From<crate::database::CommandEntry> for HistoryEntry {
+    fn from(cmd: crate::database::CommandEntry) -> Self {
+        Self {
+            command: cmd.command,
+            timestamp: cmd.timestamp,
+            directory: cmd.directory,
+            redacted: cmd.redacted,
+            original: None,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -7,6 +7,7 @@
 //! - Migration from legacy .mhist files
 
 use crate::error::Result;
+use crate::types::{CommandId, HostId, SessionId};
 use chrono::{DateTime, Utc};
 use rusqlite::{params, Connection, OptionalExtension};
 use std::path::Path;
@@ -15,7 +16,7 @@ use uuid::Uuid;
 /// Represents a host in the database
 #[derive(Debug, Clone)]
 pub struct Host {
-    pub id: i64,
+    pub id: HostId,
     pub hostname: String,
     pub created_at: DateTime<Utc>,
 }
@@ -23,8 +24,8 @@ pub struct Host {
 /// Represents a shell session
 #[derive(Debug, Clone)]
 pub struct Session {
-    pub id: String, // UUID
-    pub host_id: i64,
+    pub id: SessionId,
+    pub host_id: HostId,
     pub started_at: DateTime<Utc>,
     pub ended_at: Option<DateTime<Utc>>,
 }
@@ -32,8 +33,8 @@ pub struct Session {
 /// Represents a command entry in the database
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct CommandEntry {
-    pub id: i64,
-    pub session_id: String,
+    pub id: CommandId,
+    pub session_id: SessionId,
     pub command: String,
     pub timestamp: DateTime<Utc>,
     pub directory: String,
@@ -45,7 +46,7 @@ pub struct CommandEntry {
 #[derive(Debug, Clone)]
 pub struct Token {
     pub id: i64,
-    pub command_id: i64,
+    pub command_id: CommandId,
     pub token_type: String, // e.g., "password", "api_key", "token"
     pub placeholder: String,
     pub original_value: String,
@@ -67,8 +68,8 @@ pub struct DatabaseStats {
 /// Main database manager
 pub struct Database {
     conn: Connection,
-    current_host_id: i64,
-    current_session_id: Option<String>,
+    current_host_id: HostId,
+    current_session_id: Option<SessionId>,
 }
 
 impl Database {
@@ -86,7 +87,7 @@ impl Database {
 
         let mut db = Self {
             conn,
-            current_host_id: 0,
+            current_host_id: HostId::new(0),
             current_session_id: None,
         };
 
@@ -195,7 +196,7 @@ impl Database {
             .optional()?;
 
         self.current_host_id = if let Some(id) = host_id {
-            id
+            HostId::new(id)
         } else {
             // Insert new host
             let now = Utc::now().to_rfc3339();
@@ -203,7 +204,7 @@ impl Database {
                 "INSERT INTO hosts (hostname, created_at) VALUES (?1, ?2)",
                 params![hostname, now],
             )?;
-            self.conn.last_insert_rowid()
+            HostId::new(self.conn.last_insert_rowid())
         };
 
         Ok(())
@@ -216,10 +217,10 @@ impl Database {
 
         self.conn.execute(
             "INSERT INTO sessions (id, host_id, started_at) VALUES (?1, ?2, ?3)",
-            params![session_id, self.current_host_id, now],
+            params![session_id, self.current_host_id.as_i64(), now],
         )?;
 
-        self.current_session_id = Some(session_id.clone());
+        self.current_session_id = Some(SessionId::new(session_id.clone()));
         Ok(session_id)
     }
 
@@ -241,7 +242,7 @@ impl Database {
     /// Get or create a session for the current shell
     pub fn ensure_session(&mut self) -> Result<String> {
         if let Some(ref session_id) = self.current_session_id {
-            Ok(session_id.clone())
+            Ok(session_id.as_str().to_string())
         } else {
             self.start_session()
         }
@@ -295,17 +296,17 @@ impl Database {
     }
 
     /// Get tokens for a specific command
-    pub fn get_tokens_for_command(&self, command_id: i64) -> Result<Vec<Token>> {
+    pub fn get_tokens_for_command(&self, command_id: CommandId) -> Result<Vec<Token>> {
         let mut stmt = self.conn.prepare(
             "SELECT id, command_id, token_type, placeholder, original_value, created_at
              FROM tokens WHERE command_id = ?1",
         )?;
 
         let tokens = stmt
-            .query_map(params![command_id], |row| {
+            .query_map(params![command_id.as_i64()], |row| {
                 Ok(Token {
                     id: row.get(0)?,
-                    command_id: row.get(1)?,
+                    command_id: CommandId::new(row.get(1)?),
                     token_type: row.get(2)?,
                     placeholder: row.get(3)?,
                     original_value: row.get(4)?,
@@ -569,7 +570,7 @@ impl Database {
     }
 
     /// Get sessions for a host
-    pub fn get_sessions_for_host(&self, host_id: i64) -> Result<Vec<Session>> {
+    pub fn get_sessions_for_host(&self, host_id: HostId) -> Result<Vec<Session>> {
         let mut stmt = self.conn.prepare(
             "SELECT id, host_id, started_at, ended_at
              FROM sessions
@@ -578,10 +579,10 @@ impl Database {
         )?;
 
         let sessions = stmt
-            .query_map(params![host_id], |row| {
+            .query_map(params![host_id.as_i64()], |row| {
                 Ok(Session {
-                    id: row.get(0)?,
-                    host_id: row.get(1)?,
+                    id: SessionId::new(row.get(0)?),
+                    host_id: HostId::new(row.get(1)?),
                     started_at: row
                         .get::<_, String>(2)?
                         .parse()
@@ -780,7 +781,7 @@ mod tests {
         db.store_token(cmd_id, "password", "<redacted>", "password123")
             .unwrap();
 
-        let tokens = db.get_tokens_for_command(cmd_id).unwrap();
+        let tokens = db.get_tokens_for_command(CommandId::new(cmd_id)).unwrap();
         assert_eq!(tokens.len(), 1);
         assert_eq!(tokens[0].original_value, "password123");
     }

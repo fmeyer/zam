@@ -45,13 +45,7 @@ pub fn handle_export(app: &mut CliApp, args: &ExportArgs) -> Result<()> {
         HistoryBackend::Database(mgr) => mgr
             .get_all_commands()?
             .into_iter()
-            .map(|cmd| crate::history::HistoryEntry {
-                command: cmd.command,
-                timestamp: cmd.timestamp,
-                directory: cmd.directory,
-                redacted: cmd.redacted,
-                original: None,
-            })
+            .map(Into::into)
             .collect(),
     };
 
