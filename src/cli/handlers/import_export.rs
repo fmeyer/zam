@@ -40,14 +40,7 @@ pub fn handle_import(app: &mut CliApp, args: &ImportArgs) -> Result<()> {
 }
 
 pub fn handle_export(app: &mut CliApp, args: &ExportArgs) -> Result<()> {
-    let entries = match &app.backend {
-        HistoryBackend::File(mgr) => mgr.get_entries()?,
-        HistoryBackend::Database(mgr) => mgr
-            .get_all_commands()?
-            .into_iter()
-            .map(Into::into)
-            .collect(),
-    };
+    let entries = app.provider().get_entries()?;
 
     // Filter entries if needed
     let filtered_entries: Vec<_> = entries

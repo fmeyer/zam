@@ -197,6 +197,22 @@ impl CliApp {
             eprintln!("[verbose] {}", message);
         }
     }
+
+    /// Get a reference to the backend as a HistoryProvider trait object
+    pub fn provider(&self) -> &dyn crate::backend::HistoryProvider {
+        match &self.backend {
+            HistoryBackend::File(mgr) => mgr,
+            HistoryBackend::Database(mgr) => mgr,
+        }
+    }
+
+    /// Get a mutable reference to the backend as a HistoryProvider trait object
+    pub fn provider_mut(&mut self) -> &mut dyn crate::backend::HistoryProvider {
+        match &mut self.backend {
+            HistoryBackend::File(mgr) => mgr,
+            HistoryBackend::Database(mgr) => mgr,
+        }
+    }
 }
 
 /// Main entry point for the CLI

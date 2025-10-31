@@ -360,6 +360,29 @@ impl HistoryManagerDb {
     }
 }
 
+/// Implementation of HistoryProvider trait for database backend
+impl crate::backend::HistoryProvider for HistoryManagerDb {
+    fn get_entries(&self) -> Result<Vec<crate::history::HistoryEntry>> {
+        Ok(self.get_all_commands()?.into_iter().map(Into::into).collect())
+    }
+
+    fn get_recent(&self, count: usize) -> Result<Vec<crate::history::HistoryEntry>> {
+        Ok(self.get_recent(count)?.into_iter().map(Into::into).collect())
+    }
+
+    fn search(&self, query: &str) -> Result<Vec<crate::history::HistoryEntry>> {
+        Ok(self.search(query, None, None, None)?.into_iter().map(Into::into).collect())
+    }
+
+    fn log_command(&mut self, command: &str) -> Result<()> {
+        HistoryManagerDb::log_command(self, command)
+    }
+
+    fn clear(&mut self) -> Result<()> {
+        self.db.clear()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

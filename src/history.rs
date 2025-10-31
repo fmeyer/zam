@@ -566,6 +566,32 @@ impl From<crate::database::CommandEntry> for HistoryEntry {
     }
 }
 
+/// Implementation of HistoryProvider trait for file-based backend
+impl crate::backend::HistoryProvider for HistoryManager {
+    fn get_entries(&self) -> Result<Vec<HistoryEntry>> {
+        self.get_entries()
+    }
+
+    fn get_recent(&self, count: usize) -> Result<Vec<HistoryEntry>> {
+        let mut entries = self.get_entries()?;
+        entries.reverse();
+        entries.truncate(count);
+        Ok(entries)
+    }
+
+    fn search(&self, query: &str) -> Result<Vec<HistoryEntry>> {
+        self.search(query, None)
+    }
+
+    fn log_command(&mut self, command: &str) -> Result<()> {
+        self.log_command(command)
+    }
+
+    fn clear(&mut self) -> Result<()> {
+        self.clear()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

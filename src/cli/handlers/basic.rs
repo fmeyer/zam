@@ -21,17 +21,19 @@ pub fn handle_log(app: &mut CliApp, args: &LogArgs) -> Result<()> {
         None
     };
 
-    // Log the command based on backend
-    match &mut app.backend {
-        HistoryBackend::File(mgr) => {
-            if let Some(timestamp) = timestamp {
-                mgr.log_command_with_timestamp(&args.command, Some(timestamp))?;
-            } else {
-                mgr.log_command(&args.command)?;
+    // Log the command
+    if timestamp.is_none() {
+        // Use trait method for simple case
+        app.provider_mut().log_command(&args.command)?;
+    } else {
+        // Use backend-specific methods for timestamp support
+        match &mut app.backend {
+            HistoryBackend::File(mgr) => {
+                mgr.log_command_with_timestamp(&args.command, timestamp)?;
             }
-        }
-        HistoryBackend::Database(mgr) => {
-            mgr.log_command_with_timestamp(&args.command, timestamp, None)?;
+            HistoryBackend::Database(mgr) => {
+                mgr.log_command_with_timestamp(&args.command, timestamp, None)?;
+            }
         }
     }
 
@@ -182,19 +184,7 @@ pub fn handle_search(app: &mut CliApp, args: &SearchArgs) -> Result<()> {
 }
 
 pub fn handle_recent(app: &mut CliApp, args: &RecentArgs) -> Result<()> {
-    let entries = match &app.backend {
-        HistoryBackend::File(mgr) => {
-            let mut entries = mgr.get_entries()?;
-            entries.reverse();
-            entries.truncate(args.count);
-            entries
-        }
-        HistoryBackend::Database(mgr) => mgr
-            .get_recent(args.count)?
-            .into_iter()
-            .map(Into::into)
-            .collect(),
-    };
+    let entries = app.provider().get_recent(args.count)?;
 
     for entry in entries {
         if args.timestamps {
@@ -208,14 +198,7 @@ pub fn handle_recent(app: &mut CliApp, args: &RecentArgs) -> Result<()> {
 }
 
 pub fn handle_fzf(app: &mut CliApp, args: &FzfArgs) -> Result<()> {
-    let mut entries = match &app.backend {
-        HistoryBackend::File(mgr) => mgr.get_entries()?,
-        HistoryBackend::Database(mgr) => mgr
-            .get_all_commands()?
-            .into_iter()
-            .map(Into::into)
-            .collect(),
-    };
+    let mut entries = app.provider().get_entries()?;
 
     // Filter by directory if specified
     if let Some(dir) = &args.directory {
@@ -246,14 +229,7 @@ pub fn handle_fzf(app: &mut CliApp, args: &FzfArgs) -> Result<()> {
 }
 
 pub fn handle_frequent(app: &mut CliApp, args: &FrequentArgs) -> Result<()> {
-    let entries = match &app.backend {
-        HistoryBackend::File(mgr) => mgr.get_entries()?,
-        HistoryBackend::Database(mgr) => mgr
-            .get_all_commands()?
-            .into_iter()
-            .map(Into::into)
-            .collect(),
-    };
+    let entries = app.provider().get_entries()?;
 
     if args.directories {
         let frequent_dirs = app.search_engine.get_frequent_directories(&entries)?;

@@ -19,6 +19,7 @@
 
 use std::path::PathBuf;
 
+pub mod backend;
 pub mod cli;
 pub mod config;
 pub mod database;
