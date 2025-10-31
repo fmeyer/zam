@@ -95,6 +95,8 @@ Backend selection logic (in `cli/mod.rs:114-138`):
 - `search.rs`: Search functionality with fuzzy matching and regex
 - `config.rs`: Configuration loading and management
 - `error.rs`: Error types and Result alias
+- `types.rs`: Type-safe newtype wrappers for IDs (CommandId, HostId, SessionId)
+- `prelude.rs`: Common imports and re-exports
 
 ### Database Schema
 
@@ -200,3 +202,72 @@ When adding features, consider:
 - File-only features are deprecated in favor of database
 
 Return appropriate errors for unsupported operations (e.g., token retrieval requires database backend).
+
+## Rust Best Practices Implemented
+
+This codebase follows modern Rust idioms and best practices:
+
+### Type Safety with Newtypes
+- **Type-safe ID wrappers** (`types.rs`): `CommandId`, `HostId`, `SessionId` prevent ID type confusion
+- All ID types implement `From`, `Into`, `Display`, `ToSql`, `FromSql`, and `Serialize`/`Deserialize`
+- Compile-time prevention of passing wrong ID types to functions
+
+Example:
+```rust
+// This won't compile - type safety!
+let host_id: HostId = HostId::new(1);
+db.get_tokens_for_command(host_id); // Error: expected CommandId, found HostId
+```
+
+### Clean Conversions with From Trait
+- Use `impl From<CommandEntry> for HistoryEntry` instead of manual struct construction
+- Prefer `.map(Into::into)` over verbose mapping closures
+
+Example:
+```rust
+// Good
+mgr.get_all_commands()?.into_iter().map(Into::into).collect()
+
+// Avoid
+mgr.get_all_commands()?.into_iter().map(|cmd| HistoryEntry {
+    command: cmd.command,
+    timestamp: cmd.timestamp,
+    // ...
+}).collect()
+```
+
+### Must-Use Annotations
+- Important functions marked with `#[must_use]` to catch unused Results
+- Applied to: constructors, query methods, redaction functions
+
+### Observability with Tracing
+- Structured logging via `tracing` crate instead of custom verbose_println
+- Control log levels with `RUST_LOG` environment variable (e.g., `RUST_LOG=debug`)
+- Use `debug!()`, `info!()`, `warn!()`, `error!()` macros for logging
+
+Example:
+```bash
+# Run with debug logging
+RUST_LOG=debug mortimer status
+
+# Run with info logging
+RUST_LOG=info mortimer import zsh
+```
+
+### Prelude Pattern
+- Common imports available via `use mortimer::prelude::*`
+- Includes: `Error`, `Result`, `Config`, and ID types
+
+## Development Guidelines
+
+### Commit Messages
+- Do not include "Generated with Claude Code" or similar branding
+- Use conventional commit format: `feat:`, `fix:`, `refactor:`, `docs:`, etc.
+- Keep commit messages concise and focused on what changed, not benefits
+
+### Code Style
+- Use `From` trait implementations for type conversions
+- Prefer iterator chains over manual loops
+- Add `#[must_use]` to functions returning important Results
+- Use `tracing` macros for all logging (never `println!` or `eprintln!` except for user output)
+
