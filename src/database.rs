@@ -620,7 +620,7 @@ impl Database {
 
                 // Start new entry
                 current_entry = Some(entry_parts);
-            } else if let Some((_timestamp, _directory, ref mut command)) = current_entry.as_mut() {
+            } else if let Some((_timestamp, _directory, command)) = current_entry.as_mut() {
                 // This is a continuation line (multiline command)
                 command.push('\n');
                 command.push_str(line.trim());
