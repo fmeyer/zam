@@ -285,8 +285,9 @@ impl HistoryManager {
     }
 
     /// Get history statistics
-    pub fn get_stats(&self) -> &HistoryStats {
-        &self.stats
+    pub fn get_stats(&mut self) -> Result<&HistoryStats> {
+        self.update_stats()?;
+        Ok(&self.stats)
     }
 
     /// Clear all history
@@ -363,11 +364,14 @@ impl HistoryManager {
             })?
             .and_utc();
 
+        // Detect if the command was redacted by checking for redaction markers
+        let was_redacted = command.contains("<redacted>");
+
         Ok(Some(HistoryEntry {
             command,
             timestamp,
             directory,
-            redacted: false, // We don't store this information in the file
+            redacted: was_redacted,
             original: None,
         }))
     }
@@ -603,6 +607,7 @@ mod tests {
         let mut config = Config::default();
         config.history_file = temp_file.path().to_path_buf();
         config.max_entries = 1000;
+        config.shell_integration.exclude_commands.clear(); // Don't exclude any commands in tests
         config
     }
 
@@ -692,7 +697,7 @@ mod tests {
         manager.log_command("password=secret").unwrap();
         manager.log_command("ls -la").unwrap();
 
-        let stats = manager.get_stats();
+        let stats = manager.get_stats().unwrap();
         assert_eq!(stats.total_entries, 3);
         assert_eq!(stats.redacted_entries, 1);
         assert_eq!(stats.unique_commands, 3);

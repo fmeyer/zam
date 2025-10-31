@@ -10,24 +10,24 @@ use std::sync::{Mutex, Once};
 
 /// Built-in redaction patterns for common sensitive data
 pub const BUILTIN_PATTERNS: &[&str] = &[
-    // Password patterns
-    r"(?i)password\s*[=:]\s*[^\s]+",
-    r"(?i)pwd\s*[=:]\s*[^\s]+",
-    r"(?i)pass\s*[=:]\s*[^\s]+",
-    r"(?i)passwd\s*[=:]\s*[^\s]+",
-    // Token patterns
-    r"(?i)token\s*[=:]\s*[^\s]+",
-    r"(?i)auth_token\s*[=:]\s*[^\s]+",
-    r"(?i)access_token\s*[=:]\s*[^\s]+",
-    r"(?i)refresh_token\s*[=:]\s*[^\s]+",
-    // API key patterns
-    r"(?i)api_key\s*[=:]\s*[^\s]+",
-    r"(?i)apikey\s*[=:]\s*[^\s]+",
-    r"(?i)key\s*[=:]\s*[a-zA-Z0-9]{16,}",
-    // Secret patterns
-    r"(?i)secret\s*[=:]\s*[^\s]+",
-    r"(?i)secret[-_]key\s*[=:]\s*[^\s]+",
-    r"(?i)client_secret\s*[=:]\s*[^\s]+",
+    // Password patterns (with capture groups to preserve key=)
+    r"(?i)(password\s*[=:]\s*)[^\s]+",
+    r"(?i)(pwd\s*[=:]\s*)[^\s]+",
+    r"(?i)(pass\s*[=:]\s*)[^\s]+",
+    r"(?i)(passwd\s*[=:]\s*)[^\s]+",
+    // Token patterns (with capture groups to preserve key=)
+    r"(?i)(token\s*[=:]\s*)[^\s]+",
+    r"(?i)(auth_token\s*[=:]\s*)[^\s]+",
+    r"(?i)(access_token\s*[=:]\s*)[^\s]+",
+    r"(?i)(refresh_token\s*[=:]\s*)[^\s]+",
+    // API key patterns (with capture groups to preserve key=)
+    r"(?i)(api_key\s*[=:]\s*)[^\s]+",
+    r"(?i)(apikey\s*[=:]\s*)[^\s]+",
+    r"(?i)(key\s*[=:]\s*)[a-zA-Z0-9]{16,}",
+    // Secret patterns (with capture groups to preserve key=)
+    r"(?i)(secret\s*[=:]\s*)[^\s]+",
+    r"(?i)(secret[-_]key\s*[=:]\s*)[^\s]+",
+    r"(?i)(client_secret\s*[=:]\s*)[^\s]+",
     // Connection string patterns
     r"(?i)(://[^:/@]+:)[^@]*(@)",
     r"(?i)(mongodb://[^:]+:)[^@]*(@)",
@@ -176,6 +176,11 @@ impl RedactionEngine {
                     // Connection string pattern - keep prefix and suffix
                     ReplacementType::Partial {
                         keep_groups: vec![1, 2],
+                    }
+                } else if pattern.contains(r"[=:]\s*)[^\s]+") || pattern.contains(r"[=:]\s*)[a-zA-Z0-9]") {
+                    // Key-value pattern - keep the key part
+                    ReplacementType::Partial {
+                        keep_groups: vec![1],
                     }
                 } else {
                     ReplacementType::Full

@@ -27,9 +27,9 @@ pub fn handle_config(app: &mut CliApp, args: &ConfigArgs) -> Result<()> {
 }
 
 pub fn handle_stats(app: &mut CliApp, args: &StatsArgs) -> Result<()> {
-    match &app.backend {
+    match &mut app.backend {
         HistoryBackend::File(mgr) => {
-            let stats = mgr.get_stats();
+            let stats = mgr.get_stats()?;
 
             println!("History Statistics (File-based)");
             println!("================================");
@@ -97,7 +97,7 @@ pub fn handle_stats(app: &mut CliApp, args: &StatsArgs) -> Result<()> {
     Ok(())
 }
 
-pub fn handle_status(app: &CliApp) -> Result<()> {
+pub fn handle_status(app: &mut CliApp) -> Result<()> {
     println!("Mortimer Status");
     println!("===============\n");
 
@@ -159,14 +159,18 @@ pub fn handle_status(app: &CliApp) -> Result<()> {
     println!();
 
     // Show quick stats
-    match &app.backend {
-        HistoryBackend::File(mgr) => {
-            let stats = mgr.get_stats();
-            println!("Quick Stats:");
-            println!("  Total entries: {}", stats.total_entries);
-            println!("  Unique commands: {}", stats.unique_commands);
-            println!("  Redacted entries: {}", stats.redacted_entries);
-        }
+    match &mut app.backend {
+        HistoryBackend::File(mgr) => match mgr.get_stats() {
+            Ok(stats) => {
+                println!("Quick Stats:");
+                println!("  Total entries: {}", stats.total_entries);
+                println!("  Unique commands: {}", stats.unique_commands);
+                println!("  Redacted entries: {}", stats.redacted_entries);
+            }
+            Err(e) => {
+                eprintln!("Error getting stats: {}", e);
+            }
+        },
         HistoryBackend::Database(mgr) => match mgr.get_stats() {
             Ok(stats) => {
                 println!("Quick Stats:");
