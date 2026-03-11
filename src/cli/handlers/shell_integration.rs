@@ -1,7 +1,7 @@
 //! Shell integration handlers for Mortimer CLI
 
-use crate::cli::args::*;
 use crate::cli::CliApp;
+use crate::cli::args::*;
 use crate::error::Result;
 
 pub fn handle_shell(app: &CliApp, args: &ShellArgs) -> Result<()> {

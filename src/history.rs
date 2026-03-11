@@ -246,9 +246,10 @@ impl HistoryManager {
         for entry in entries {
             // Apply directory filter if specified
             if let Some(dir_filter) = directory_filter
-                && !entry.directory.contains(dir_filter) {
-                    continue;
-                }
+                && !entry.directory.contains(dir_filter)
+            {
+                continue;
+            }
 
             // Check if command matches query
             let matches = if self.config.search.case_sensitive {
@@ -344,7 +345,9 @@ impl HistoryManager {
     /// Format: `[ISO8601] dir=/path cmd=command`
     /// Newlines in commands are escaped as `\n`.
     fn format_entry(&self, entry: &HistoryEntry) -> String {
-        let timestamp_str = entry.timestamp.to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+        let timestamp_str = entry
+            .timestamp
+            .to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
         let escaped_cmd = entry.command.replace('\\', "\\\\").replace('\n', "\\n");
         let deleted_marker = if entry.deleted { " deleted=true" } else { "" };
         format!(
@@ -370,9 +373,8 @@ impl HistoryManager {
         let timestamp_str = &line[1..close_bracket];
         let rest = &line[close_bracket + 2..];
 
-        let timestamp: DateTime<Utc> = timestamp_str
-            .parse()
-            .map_err(|_| Error::InvalidTimestamp {
+        let timestamp: DateTime<Utc> =
+            timestamp_str.parse().map_err(|_| Error::InvalidTimestamp {
                 timestamp: timestamp_str.to_string(),
             })?;
 
@@ -443,7 +445,7 @@ impl HistoryManager {
                 timestamp: datetime,
                 directory: "<imported>".to_string(),
                 redacted: was_redacted,
-            deleted: false,
+                deleted: false,
                 original: None,
             }))
         } else {
@@ -481,7 +483,6 @@ impl HistoryManager {
         // Fish format: "- cmd: command\n  when: timestamp\n  paths: [...]"
         // This is a simplified parser for the most common case
         if let Some(command) = line.strip_prefix("- cmd: ") {
-
             let (redacted_command, was_redacted) = if self.config.enable_redaction {
                 let original = command.to_string();
                 let redacted = self.redaction_engine.redact(command)?;
@@ -495,7 +496,7 @@ impl HistoryManager {
                 timestamp: Utc::now(), // Would need to parse next lines for timestamp
                 directory: "<imported>".to_string(),
                 redacted: was_redacted,
-            deleted: false,
+                deleted: false,
                 original: None,
             }))
         } else {
@@ -602,7 +603,7 @@ impl From<crate::database::CommandEntry> for HistoryEntry {
             directory: cmd.directory,
             redacted: cmd.redacted,
             original: None,
-            deleted: false,  // Database entries aren't deleted by default
+            deleted: false, // Database entries aren't deleted by default
         }
     }
 }
@@ -644,10 +645,11 @@ impl crate::backend::HistoryProvider for HistoryManager {
         // Mark entries as deleted
         for &idx in indices {
             if let Some(entry) = entries.get_mut(idx)
-                && !entry.deleted {
-                    entry.deleted = true;
-                    deleted_count += 1;
-                }
+                && !entry.deleted
+            {
+                entry.deleted = true;
+                deleted_count += 1;
+            }
         }
 
         // Rewrite the history file with deleted markers
@@ -671,9 +673,11 @@ mod tests {
 
     fn test_config() -> Config {
         let temp_file = NamedTempFile::new().unwrap();
-        let mut config = Config::default();
-        config.history_file = temp_file.path().to_path_buf();
-        config.max_entries = 1000;
+        let mut config = Config {
+            history_file: temp_file.path().to_path_buf(),
+            max_entries: 1000,
+            ..Default::default()
+        };
         config.shell_integration.exclude_commands.clear(); // Don't exclude any commands in tests
         config
     }

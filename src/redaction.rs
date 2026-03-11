@@ -177,7 +177,9 @@ impl RedactionEngine {
                     ReplacementType::Partial {
                         keep_groups: vec![1, 2],
                     }
-                } else if pattern.contains(r"[=:]\s*)[^\s]+") || pattern.contains(r"[=:]\s*)[a-zA-Z0-9]") {
+                } else if pattern.contains(r"[=:]\s*)[^\s]+")
+                    || pattern.contains(r"[=:]\s*)[a-zA-Z0-9]")
+                {
                     // Key-value pattern - keep the key part
                     ReplacementType::Partial {
                         keep_groups: vec![1],
@@ -315,9 +317,10 @@ impl RedactionEngine {
 
         // Check minimum length requirement
         if let Some(mat) = pattern.regex.find(text)
-            && mat.as_str().len() < self.min_length {
-                return true;
-            }
+            && mat.as_str().len() < self.min_length
+        {
+            return true;
+        }
 
         false
     }

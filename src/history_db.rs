@@ -84,7 +84,10 @@ impl HistoryManagerDb {
             let (redacted, extracted) = self.redact_and_extract_tokens(command)?;
             let was_redacted = redacted != command;
             if was_redacted {
-                debug!("Redacted sensitive data from command, extracted {} tokens", extracted.len());
+                debug!(
+                    "Redacted sensitive data from command, extracted {} tokens",
+                    extracted.len()
+                );
             }
             (redacted, if was_redacted { extracted } else { vec![] })
         } else {
@@ -206,7 +209,8 @@ impl HistoryManagerDb {
 
     /// Get tokens for a specific command
     pub fn get_tokens_for_command(&self, command_id: i64) -> Result<Vec<crate::database::Token>> {
-        self.db.get_tokens_for_command(crate::types::CommandId::new(command_id))
+        self.db
+            .get_tokens_for_command(crate::types::CommandId::new(command_id))
     }
 
     /// Get tokens by session ID
@@ -303,9 +307,10 @@ impl HistoryManagerDb {
                 current_cmd = Some(line.trim_start_matches("- cmd: ").to_string());
             } else if line.starts_with("when: ")
                 && let Ok(timestamp) = line.trim_start_matches("when: ").parse::<i64>()
-                && let Some(dt) = DateTime::from_timestamp(timestamp, 0) {
-                    current_time = Some(dt);
-                }
+                && let Some(dt) = DateTime::from_timestamp(timestamp, 0)
+            {
+                current_time = Some(dt);
+            }
         }
 
         // Don't forget the last command
@@ -335,7 +340,8 @@ impl HistoryManagerDb {
 
     /// Get sessions for a host
     pub fn get_sessions_for_host(&self, host_id: i64) -> Result<Vec<crate::database::Session>> {
-        self.db.get_sessions_for_host(crate::types::HostId::new(host_id))
+        self.db
+            .get_sessions_for_host(crate::types::HostId::new(host_id))
     }
 
     /// Clear all data (use with caution!)
@@ -347,15 +353,27 @@ impl HistoryManagerDb {
 /// Implementation of HistoryProvider trait for database backend
 impl crate::backend::HistoryProvider for HistoryManagerDb {
     fn get_entries(&self) -> Result<Vec<crate::history::HistoryEntry>> {
-        Ok(self.get_all_commands()?.into_iter().map(Into::into).collect())
+        Ok(self
+            .get_all_commands()?
+            .into_iter()
+            .map(Into::into)
+            .collect())
     }
 
     fn get_recent(&self, count: usize) -> Result<Vec<crate::history::HistoryEntry>> {
-        Ok(self.get_recent(count)?.into_iter().map(Into::into).collect())
+        Ok(self
+            .get_recent(count)?
+            .into_iter()
+            .map(Into::into)
+            .collect())
     }
 
     fn search(&self, query: &str) -> Result<Vec<crate::history::HistoryEntry>> {
-        Ok(self.search(query, None, None, None)?.into_iter().map(Into::into).collect())
+        Ok(self
+            .search(query, None, None, None)?
+            .into_iter()
+            .map(Into::into)
+            .collect())
     }
 
     fn log_command(&mut self, command: &str) -> Result<()> {
@@ -401,9 +419,11 @@ mod tests {
     fn test_config() -> (Config, TempDir) {
         let temp_dir = TempDir::new().unwrap();
         let temp_file = temp_dir.path().join("test.log");
-        let mut config = Config::default();
-        config.history_file = temp_file;
-        config.enable_redaction = true;
+        let mut config = Config {
+            history_file: temp_file,
+            enable_redaction: true,
+            ..Default::default()
+        };
         config.shell_integration.exclude_commands.clear();
         (config, temp_dir)
     }
@@ -476,9 +496,10 @@ mod tests {
         manager.log_command("export PASSWORD=mypass123").unwrap();
 
         let commands = manager.get_recent(1).unwrap();
-        let tokens = manager.get_tokens_for_command(commands[0].id.as_i64()).unwrap();
+        let tokens = manager
+            .get_tokens_for_command(commands[0].id.as_i64())
+            .unwrap();
 
         assert!(!tokens.is_empty());
     }
-
 }
