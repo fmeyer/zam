@@ -1,4 +1,4 @@
-//! Redaction engine for Mortimer
+//! Redaction engine for zam
 //!
 //! This module provides sophisticated redaction capabilities for sensitive data
 //! in shell commands, including passwords, tokens, API keys, and other secrets.

@@ -1,7 +1,7 @@
-//! Configuration management for Mortimer
+//! Configuration management for zam
 //!
 //! This module handles loading, validating, and managing configuration
-//! for the Mortimer history manager, including redaction patterns,
+//! for the zam history manager, including redaction patterns,
 //! file paths, and behavior settings.
 
 use crate::error::{Error, Result};
@@ -11,7 +11,7 @@ use std::fs;
 use std::path::PathBuf;
 
 /// Default configuration file name
-pub const DEFAULT_CONFIG_FILE: &str = ".mortimer.json";
+pub const DEFAULT_CONFIG_FILE: &str = ".zam.json";
 
 /// Default maximum number of history entries to keep
 pub const DEFAULT_MAX_ENTRIES: usize = 100_000;
@@ -19,7 +19,7 @@ pub const DEFAULT_MAX_ENTRIES: usize = 100_000;
 /// Default redaction replacement text
 pub const DEFAULT_REDACTION_PLACEHOLDER: &str = "<redacted>";
 
-/// Main configuration structure for Mortimer
+/// Main configuration structure for zam
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
     /// Path to the history file

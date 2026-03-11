@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Mortimer is a modern, fast, and secure command-line history manager written in Rust. It provides enhanced shell history management with automatic sensitive data redaction, multi-shell support, and dual storage backends (file-based and SQLite database).
+Zam is a modern, fast, and secure command-line history manager written in Rust. It provides enhanced shell history management with automatic sensitive data redaction, multi-shell support, and dual storage backends (file-based and SQLite database).
 
 Key features:
 - Automatic sensitive data redaction (passwords, tokens, API keys)
@@ -65,9 +65,9 @@ cargo fmt -- --check
 
 ### Dual Backend System
 
-Mortimer supports two storage backends that share a common interface:
+Zam supports two storage backends that share a common interface:
 
-1. **File-based backend** (`history.rs`): Legacy `.mhist` file format
+1. **File-based backend** (`history.rs`): Structured log format
 2. **Database backend** (`history_db.rs`): SQLite with advanced features
 
 Backend selection logic (in `cli/mod.rs:114-138`):
@@ -136,7 +136,7 @@ Pattern types detected (see `BUILTIN_PATTERNS` in `redaction.rs:12-63`):
 
 ### Configuration System
 
-Configuration is JSON-based (`~/.mortimer.json`), with sections:
+Configuration is JSON-based (`~/.zam.json`), with sections:
 - `redaction`: Redaction behavior and custom patterns
 - `import`: Shell history import settings
 - `search`: Search behavior defaults
@@ -145,7 +145,7 @@ Configuration is JSON-based (`~/.mortimer.json`), with sections:
 
 Configuration hierarchy:
 1. Explicit `--config` flag
-2. Default location (`~/.mortimer.json`)
+2. Default location (`~/.zam.json`)
 3. Built-in defaults (`Config::default()`)
 
 ### Search Engine
@@ -248,14 +248,14 @@ mgr.get_all_commands()?.into_iter().map(|cmd| HistoryEntry {
 Example:
 ```bash
 # Run with debug logging
-RUST_LOG=debug mortimer status
+RUST_LOG=debug zam status
 
 # Run with info logging
-RUST_LOG=info mortimer import zsh
+RUST_LOG=info zam import zsh
 ```
 
 ### Prelude Pattern
-- Common imports available via `use mortimer::prelude::*`
+- Common imports available via `use zam::prelude::*`
 - Includes: `Error`, `Result`, `Config`, and ID types
 
 ## Development Guidelines

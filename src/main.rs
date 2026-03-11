@@ -1,12 +1,12 @@
-//! Mortimer - Enhanced shell history manager with sensitive data redaction
+//! Zam - Enhanced shell history manager with sensitive data redaction
 //!
-//! This is the main entry point for the Mortimer command-line application.
+//! This is the main entry point for the zam command-line application.
 //! It initializes the application and handles errors gracefully.
 
-use mortimer::cli;
-use mortimer::error::Result;
 use std::process;
 use tracing_subscriber::{EnvFilter, fmt};
+use zam::cli;
+use zam::error::Result;
 
 fn main() {
     // Initialize tracing based on RUST_LOG environment variable

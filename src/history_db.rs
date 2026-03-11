@@ -1,4 +1,4 @@
-//! Database-backed history management for Mortimer
+//! Database-backed history management for zam
 //!
 //! This module provides SQLite-based history management with support for:
 //! - Multi-host history tracking

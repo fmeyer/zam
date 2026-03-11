@@ -1,4 +1,4 @@
-//! Prelude module for Mortimer
+//! Prelude module for zam
 //!
 //! This module re-exports commonly used types and traits to reduce
 //! boilerplate imports throughout the codebase.
@@ -6,7 +6,7 @@
 //! # Usage
 //!
 //! ```rust
-//! use mortimer::prelude::*;
+//! use zam::prelude::*;
 //! ```
 
 pub use crate::config::Config;

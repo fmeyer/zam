@@ -64,9 +64,9 @@ jobs:
         shell: bash
         run: |
           tag="${{ needs.create-release.outputs.tag }}"
-          name="mortimer-${tag}-${{ matrix.target }}"
+          name="zam-${tag}-${{ matrix.target }}"
           mkdir -p "$name"
-          cp "target/${{ matrix.target }}/release/mortimer" "$name/"
+          cp "target/${{ matrix.target }}/release/zam" "$name/"
           cp README.md LICENSE "$name/" 2>/dev/null || true
           tar czf "${name}.tar.gz" "$name"
 
@@ -74,4 +74,4 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ needs.create-release.outputs.tag }}
-          files: mortimer-*.tar.gz
+          files: zam-*.tar.gz

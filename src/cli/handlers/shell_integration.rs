@@ -1,4 +1,4 @@
-//! Shell integration handlers for Mortimer CLI
+//! Shell integration handlers for zam CLI
 
 use crate::cli::CliApp;
 use crate::cli::args::*;
@@ -24,12 +24,12 @@ pub fn handle_shell(app: &CliApp, args: &ShellArgs) -> Result<()> {
 }
 
 fn generate_zsh_integration() -> String {
-    r#"# Mortimer Zsh Integration
+    r#"# Zam Zsh Integration
 # Add this to your ~/.zshrc
 
 # Custom history manager function
 log_command() {
-    mortimer log "$1"
+    zam log "$1"
 }
 
 # Hook to log commands before execution
@@ -37,55 +37,55 @@ autoload -Uz add-zsh-hook
 add-zsh-hook preexec log_command
 
 # Interactive history search with fzf (Ctrl+R)
-mortimer-fzf-widget() {
-    BUFFER=$(mortimer fzf | fzf --height 50% --reverse --tac 2>/dev/tty)
+zam-fzf-widget() {
+    BUFFER=$(zam fzf | fzf --height 50% --reverse --tac 2>/dev/tty)
     CURSOR=$#BUFFER
     zle reset-prompt
 }
-zle -N mortimer-fzf-widget
+zle -N zam-fzf-widget
 
 # Replace default Ctrl-R with fzf search
-bindkey '^R' mortimer-fzf-widget
+bindkey '^R' zam-fzf-widget
 
-# Sync current shell aliases to mortimer on startup
-alias | mortimer alias sync &>/dev/null &
+# Sync current shell aliases to zam on startup
+alias | zam alias sync &>/dev/null &
 "#
     .to_string()
 }
 
 fn generate_bash_integration() -> String {
-    r#"# Mortimer Bash Integration
+    r#"# Zam Bash Integration
 # Add this to your ~/.bashrc
 
 # Function to log commands
 log_command() {
-    mortimer log "$1"
+    zam log "$1"
 }
 
 # Hook to log commands after execution
 PROMPT_COMMAND="log_command \"\$BASH_COMMAND\"; $PROMPT_COMMAND"
 
 # Interactive history search with fzf (Ctrl+R)
-bind -x '"\C-r": "READLINE_LINE=$(mortimer fzf | fzf --height 50% --reverse --tac 2>/dev/tty); READLINE_POINT=${#READLINE_LINE}"'
+bind -x '"\C-r": "READLINE_LINE=$(zam fzf | fzf --height 50% --reverse --tac 2>/dev/tty); READLINE_POINT=${#READLINE_LINE}"'
 
-# Sync current shell aliases to mortimer on startup
-alias | mortimer alias sync &>/dev/null &
+# Sync current shell aliases to zam on startup
+alias | zam alias sync &>/dev/null &
 "#
     .to_string()
 }
 
 fn generate_fish_integration() -> String {
-    r#"# Mortimer Fish Integration
+    r#"# Zam Fish Integration
 # Add this to your ~/.config/fish/config.fish
 
 # Function to log commands
-function mortimer_log_command --on-event fish_preexec
-    mortimer log "$argv[1]" &
+function zam_log_command --on-event fish_preexec
+    zam log "$argv[1]" &
 end
 
 # Interactive history search with fzf (Ctrl+R)
-function mortimer_fzf_search
-    set -l result (mortimer fzf | fzf --height 50% --reverse --tac 2>/dev/tty)
+function zam_fzf_search
+    set -l result (zam fzf | fzf --height 50% --reverse --tac 2>/dev/tty)
     if test -n "$result"
         commandline -r "$result"
     end
@@ -93,10 +93,10 @@ function mortimer_fzf_search
 end
 
 # Replace default Ctrl-R with fzf search
-bind \cr mortimer_fzf_search
+bind \cr zam_fzf_search
 
-# Sync current shell aliases to mortimer on startup
-alias | mortimer alias sync &>/dev/null &
+# Sync current shell aliases to zam on startup
+alias | zam alias sync &>/dev/null &
 "#
     .to_string()
 }
