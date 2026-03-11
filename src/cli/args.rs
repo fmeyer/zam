@@ -342,6 +342,69 @@ pub struct SessionsArgs {
     pub detailed: bool,
 }
 
+#[derive(Args)]
+pub struct AliasArgs {
+    #[command(subcommand)]
+    pub command: AliasCommands,
+}
+
+#[derive(clap::Subcommand)]
+pub enum AliasCommands {
+    /// Add a new alias
+    Add(AliasAddArgs),
+    /// Update an existing alias
+    Update(AliasUpdateArgs),
+    /// Remove an alias
+    Remove(AliasRemoveArgs),
+    /// List all aliases
+    List(AliasListArgs),
+    /// Export aliases as a shell script
+    Export(AliasExportArgs),
+    /// Sync aliases from shell (reads alias output from stdin)
+    Sync,
+}
+
+#[derive(Args)]
+pub struct AliasAddArgs {
+    /// Alias name
+    pub name: String,
+    /// Command the alias expands to
+    pub command: String,
+    /// Description of the alias
+    pub description: String,
+}
+
+#[derive(Args)]
+pub struct AliasUpdateArgs {
+    /// Alias name
+    pub name: String,
+    /// New command the alias expands to
+    pub command: String,
+    /// New description (optional)
+    #[arg(short, long)]
+    pub description: Option<String>,
+}
+
+#[derive(Args)]
+pub struct AliasRemoveArgs {
+    /// Alias name to remove
+    pub name: String,
+}
+
+#[derive(Args)]
+pub struct AliasListArgs {
+    /// Output in shell eval-ready format (alias name='cmd')
+    #[arg(long)]
+    pub shell: bool,
+}
+
+#[derive(Args)]
+pub struct AliasExportArgs {
+    /// Output file (stdout if not specified)
+    #[arg(short = 'O', long)]
+    pub output: Option<std::path::PathBuf>,
+}
+
 #[derive(clap::ValueEnum, Clone)]
 pub enum ShellType {
     Zsh,

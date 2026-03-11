@@ -555,6 +555,7 @@ mod tests {
                 directory: "/home/user".to_string(),
                 redacted: false,
                 original: None,
+                deleted: false,
             },
             HistoryEntry {
                 command: "ls -la".to_string(),
@@ -562,6 +563,7 @@ mod tests {
                 directory: "/home/user/documents".to_string(),
                 redacted: false,
                 original: None,
+                deleted: false,
             },
             HistoryEntry {
                 command: "password=<redacted>".to_string(),
@@ -569,6 +571,7 @@ mod tests {
                 directory: "/home/user".to_string(),
                 redacted: true,
                 original: Some("password=secret123".to_string()),
+                deleted: false,
             },
             HistoryEntry {
                 command: "echo Hello World".to_string(),
@@ -576,6 +579,7 @@ mod tests {
                 directory: "/tmp".to_string(),
                 redacted: false,
                 original: None,
+                deleted: false,
             },
         ]
     }
@@ -656,6 +660,7 @@ mod tests {
             directory: "/home/user".to_string(),
             redacted: false,
             original: None,
+            deleted: false,
         });
 
         let frequent = engine.get_frequent_commands(&entries).unwrap();
@@ -695,6 +700,7 @@ mod tests {
                 directory: "/home/user".to_string(),
                 redacted: false,
                 original: None,
+                deleted: false,
             },
             HistoryEntry {
                 command: "some echo command".to_string(), // Should score lower
@@ -702,6 +708,7 @@ mod tests {
                 directory: "/home/user".to_string(),
                 redacted: false,
                 original: None,
+                deleted: false,
             },
         ];
 
