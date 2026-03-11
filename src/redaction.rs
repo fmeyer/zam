@@ -207,7 +207,7 @@ impl RedactionEngine {
         cache
             .as_ref()
             .ok_or_else(|| Error::custom("Failed to initialize builtin patterns"))
-            .map(|patterns| patterns.clone())
+            .cloned()
     }
 
     /// Redact sensitive information from a command
@@ -314,11 +314,10 @@ impl RedactionEngine {
         }
 
         // Check minimum length requirement
-        if let Some(mat) = pattern.regex.find(text) {
-            if mat.as_str().len() < self.min_length {
+        if let Some(mat) = pattern.regex.find(text)
+            && mat.as_str().len() < self.min_length {
                 return true;
             }
-        }
 
         false
     }

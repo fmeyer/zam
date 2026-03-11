@@ -73,7 +73,7 @@ impl HistoryManagerDb {
             return Ok(());
         }
 
-        let timestamp = timestamp.unwrap_or_else(|| Utc::now());
+        let timestamp = timestamp.unwrap_or_else(Utc::now);
         let directory = env::current_dir()
             .unwrap_or_else(|_| PathBuf::from("<unknown>"))
             .to_string_lossy()
@@ -301,13 +301,11 @@ impl HistoryManagerDb {
                 }
 
                 current_cmd = Some(line.trim_start_matches("- cmd: ").to_string());
-            } else if line.starts_with("when: ") {
-                if let Ok(timestamp) = line.trim_start_matches("when: ").parse::<i64>() {
-                    if let Some(dt) = DateTime::from_timestamp(timestamp, 0) {
-                        current_time = Some(dt);
-                    }
+            } else if line.starts_with("when: ")
+                && let Ok(timestamp) = line.trim_start_matches("when: ").parse::<i64>()
+                && let Some(dt) = DateTime::from_timestamp(timestamp, 0) {
+                    current_time = Some(dt);
                 }
-            }
         }
 
         // Don't forget the last command

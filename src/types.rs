@@ -27,6 +27,7 @@ impl CommandId {
     }
 
     /// Get a reference to the inner i64 value
+    #[allow(clippy::should_implement_trait)]
     pub fn as_ref(&self) -> &i64 {
         &self.0
     }
@@ -81,6 +82,7 @@ impl HostId {
     }
 
     /// Get a reference to the inner i64 value
+    #[allow(clippy::should_implement_trait)]
     pub fn as_ref(&self) -> &i64 {
         &self.0
     }
