@@ -46,6 +46,9 @@ zle -N mortimer-fzf-widget
 
 # Replace default Ctrl-R with fzf search
 bindkey '^R' mortimer-fzf-widget
+
+# Sync current shell aliases to mortimer on startup
+alias | mortimer alias sync &>/dev/null &
 "#
     .to_string()
 }
@@ -64,6 +67,9 @@ PROMPT_COMMAND="log_command \"\$BASH_COMMAND\"; $PROMPT_COMMAND"
 
 # Interactive history search with fzf (Ctrl+R)
 bind -x '"\C-r": "READLINE_LINE=$(mortimer fzf | fzf --height 50% --reverse --tac 2>/dev/tty); READLINE_POINT=${#READLINE_LINE}"'
+
+# Sync current shell aliases to mortimer on startup
+alias | mortimer alias sync &>/dev/null &
 "#
     .to_string()
 }
@@ -88,6 +94,9 @@ end
 
 # Replace default Ctrl-R with fzf search
 bind \cr mortimer_fzf_search
+
+# Sync current shell aliases to mortimer on startup
+alias | mortimer alias sync &>/dev/null &
 "#
     .to_string()
 }

@@ -94,6 +94,8 @@ pub enum Commands {
     Hosts(HostsArgs),
     /// List and manage sessions
     Sessions(SessionsArgs),
+    /// Manage shell aliases
+    Alias(AliasArgs),
 }
 
 /// History backend type
@@ -192,6 +194,7 @@ impl CliApp {
             Commands::Tokens(args) => handle_tokens(self, args),
             Commands::Hosts(args) => handle_hosts(self, args),
             Commands::Sessions(args) => handle_sessions(self, args),
+            Commands::Alias(args) => handle_alias(self, args),
         }
     }
 
