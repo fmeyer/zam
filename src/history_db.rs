@@ -4,7 +4,7 @@
 //! - Multi-host history tracking
 //! - Session management
 //! - Token extraction and storage
-//! - Migration from legacy formats
+//! - Import from shell history files
 
 use crate::config::Config;
 use crate::database::{CommandEntry, Database, DatabaseStats};
@@ -14,7 +14,7 @@ use chrono::{DateTime, Utc};
 use regex::Regex;
 use std::env;
 use std::path::{Path, PathBuf};
-use tracing::{debug, info};
+use tracing::debug;
 
 /// Database-backed history manager
 pub struct HistoryManagerDb {
@@ -229,20 +229,6 @@ impl HistoryManagerDb {
         self.db.end_session(session_id)
     }
 
-    /// Import from legacy .mhist file
-    pub fn import_from_mhist(&mut self, path: &Path) -> Result<usize> {
-        if !path.exists() {
-            return Err(Error::HistoryFileNotFound {
-                path: path.to_path_buf(),
-            });
-        }
-
-        info!("Importing from legacy .mhist file: {}", path.display());
-        let count = self.db.import_from_mhist(path)?;
-        info!("Successfully imported {} commands", count);
-        Ok(count)
-    }
-
     /// Import from bash history
     pub fn import_from_bash(&mut self, path: Option<PathBuf>) -> Result<usize> {
         let history_path = if let Some(p) = path {
@@ -412,11 +398,11 @@ impl crate::backend::HistoryProvider for HistoryManagerDb {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::{NamedTempFile, TempDir};
+    use tempfile::TempDir;
 
     fn test_config() -> (Config, TempDir) {
         let temp_dir = TempDir::new().unwrap();
-        let temp_file = temp_dir.path().join("test.mhist");
+        let temp_file = temp_dir.path().join("test.log");
         let mut config = Config::default();
         config.history_file = temp_file;
         config.enable_redaction = true;
@@ -497,30 +483,4 @@ mod tests {
         assert!(!tokens.is_empty());
     }
 
-    #[test]
-    fn test_multiline_mhist_import() {
-        use std::io::Write;
-        let (config, _temp_dir) = test_config();
-        let mut manager = HistoryManagerDb::new(config).unwrap();
-
-        let mut temp_mhist = NamedTempFile::new().unwrap();
-        writeln!(temp_mhist, "2025-10-27 19:39:35 | /tmp | echo 'line1'").unwrap();
-        writeln!(
-            temp_mhist,
-            "2025-10-27 19:40:00 | /tmp | fio --name=test \\"
-        )
-        .unwrap();
-        writeln!(temp_mhist, "    --size=1G \\").unwrap();
-        writeln!(temp_mhist, "    --direct=1").unwrap();
-        writeln!(temp_mhist, "2025-10-27 19:41:00 | /tmp | ls").unwrap();
-        temp_mhist.flush().unwrap();
-
-        let count = manager.import_from_mhist(temp_mhist.path()).unwrap();
-        assert_eq!(count, 3);
-
-        let commands = manager.get_all_commands().unwrap();
-        assert!(commands[1].command.contains("fio"));
-        assert!(commands[1].command.contains("--size=1G"));
-        assert!(commands[1].command.contains("--direct=1"));
-    }
 }

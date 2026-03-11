@@ -4,34 +4,6 @@ use crate::cli::args::*;
 use crate::cli::{CliApp, HistoryBackend};
 use crate::error::{Error, Result};
 
-pub fn handle_migrate(app: &mut CliApp, args: &MigrateArgs) -> Result<()> {
-    let mgr = match &mut app.backend {
-        HistoryBackend::Database(mgr) => mgr,
-        HistoryBackend::File(_) => {
-            return Err(Error::custom(
-                "Migration requires database backend. Use --use-db flag.",
-            ));
-        }
-    };
-
-    if !app.quiet {
-        println!("Migrating from .mhist file: {}", args.mhist_file.display());
-    }
-
-    if args.dry_run {
-        println!("DRY RUN: Would migrate from {}", args.mhist_file.display());
-        return Ok(());
-    }
-
-    let count = mgr.import_from_mhist(&args.mhist_file)?;
-
-    if !app.quiet {
-        println!("Successfully migrated {} commands", count);
-    }
-
-    Ok(())
-}
-
 pub fn handle_merge(app: &mut CliApp, args: &MergeArgs) -> Result<()> {
     let mgr = match &mut app.backend {
         HistoryBackend::Database(mgr) => mgr,
