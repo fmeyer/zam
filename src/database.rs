@@ -4,7 +4,7 @@
 //! - Multi-host history tracking
 //! - Session management
 //! - Token/password storage for retrieval
-//! - Migration from legacy .mhist files
+//! - Import from shell history files
 
 use crate::error::Result;
 use crate::types::{CommandId, HostId, SessionId};
@@ -624,60 +624,6 @@ impl Database {
         Ok(sessions)
     }
 
-    /// Import from legacy .mhist file format
-    /// Handles multiline commands properly
-    pub fn import_from_mhist(&mut self, mhist_path: &Path) -> Result<usize> {
-        let content = std::fs::read_to_string(mhist_path)?;
-        let mut imported_count = 0;
-        let mut current_entry: Option<(DateTime<Utc>, String, String)> = None;
-
-        for line in content.lines() {
-            // Check if this is a new entry (starts with timestamp pattern)
-            if let Some(entry_parts) = Self::parse_mhist_line(line) {
-                // Save previous entry if exists
-                if let Some((timestamp, directory, command)) = current_entry.take() {
-                    self.add_command(&command, &directory, timestamp, false, None)?;
-                    imported_count += 1;
-                }
-
-                // Start new entry
-                current_entry = Some(entry_parts);
-            } else if let Some((_timestamp, _directory, command)) = current_entry.as_mut() {
-                // This is a continuation line (multiline command)
-                command.push('\n');
-                command.push_str(line.trim());
-            }
-        }
-
-        // Don't forget the last entry
-        if let Some((timestamp, directory, command)) = current_entry {
-            self.add_command(&command, &directory, timestamp, false, None)?;
-            imported_count += 1;
-        }
-
-        Ok(imported_count)
-    }
-
-    /// Parse a single .mhist line
-    /// Format: "2025-10-27 19:39:35 | /Users/fm/tmp | command"
-    fn parse_mhist_line(line: &str) -> Option<(DateTime<Utc>, String, String)> {
-        let parts: Vec<&str> = line.splitn(3, " | ").collect();
-        if parts.len() != 3 {
-            return None;
-        }
-
-        let timestamp_str = parts[0].trim();
-        let directory = parts[1].trim().to_string();
-        let command = parts[2].to_string();
-
-        // Parse timestamp
-        let timestamp = chrono::NaiveDateTime::parse_from_str(timestamp_str, "%Y-%m-%d %H:%M:%S")
-            .ok()?
-            .and_utc();
-
-        Some((timestamp, directory, command))
-    }
-
     /// Import from bash history
     pub fn import_from_bash_history(&mut self, bash_history_path: &Path) -> Result<usize> {
         let content = std::fs::read_to_string(bash_history_path)?;
@@ -955,16 +901,5 @@ mod tests {
         assert_eq!(all.len(), 2);
         let ll = all.iter().find(|a| a.alias == "ll").unwrap();
         assert_eq!(ll.command, "ls -lah");
-    }
-
-    #[test]
-    fn test_mhist_parsing() {
-        let line = "2025-10-27 19:39:35 | /Users/fm/tmp | ls -la";
-        let result = Database::parse_mhist_line(line);
-        assert!(result.is_some());
-
-        let (_, directory, command) = result.unwrap();
-        assert_eq!(directory, "/Users/fm/tmp");
-        assert_eq!(command, "ls -la");
     }
 }
