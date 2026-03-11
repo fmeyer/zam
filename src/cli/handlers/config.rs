@@ -113,7 +113,7 @@ pub fn handle_status(app: &mut CliApp) -> Result<()> {
                     "Note: A database file exists at {}",
                     app.config.history_file.with_extension("db").display()
                 );
-                println!("   To use it, run commands with --use-db flag\n");
+                println!("   Remove --use-file flag to use the default database backend\n");
             }
         }
         HistoryBackend::Database(_) => {
@@ -132,9 +132,9 @@ pub fn handle_status(app: &mut CliApp) -> Result<()> {
     }
 
     // Show environment variables
-    if std::env::var("MORTIMER_USE_DB").is_ok() {
+    if std::env::var("MORTIMER_USE_FILE").is_ok() {
         println!("Environment:");
-        println!("  MORTIMER_USE_DB: set (forcing database backend)\n");
+        println!("  MORTIMER_USE_FILE: set (forcing file-based backend)\n");
     }
 
     // Show configuration

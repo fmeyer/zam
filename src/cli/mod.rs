@@ -42,11 +42,7 @@ pub struct Cli {
     #[arg(long, global = true)]
     pub no_color: bool,
 
-    /// Use database backend instead of file-based (default: auto-detect)
-    #[arg(long, global = true)]
-    pub use_db: bool,
-
-    /// Force file-based backend
+    /// Force file-based backend instead of default database backend
     #[arg(long, global = true)]
     pub use_file: bool,
 
@@ -124,20 +120,13 @@ impl CliApp {
         };
 
         // Determine which backend to use
+        // Database is the default; file-based is only used when explicitly requested
         let backend = if cli.use_file {
             // Explicitly use file backend
             HistoryBackend::File(HistoryManager::new(config.clone())?)
-        } else if cli.use_db || std::env::var("MORTIMER_USE_DB").is_ok() {
-            // Explicitly use database backend (via flag or env var)
-            HistoryBackend::Database(HistoryManagerDb::new(config.clone())?)
         } else {
-            // Auto-detect: use database if .db file exists, otherwise use file
-            let db_path = config.history_file.with_extension("db");
-            if db_path.exists() {
-                HistoryBackend::Database(HistoryManagerDb::new(config.clone())?)
-            } else {
-                HistoryBackend::File(HistoryManager::new(config.clone())?)
-            }
+            // Default to database backend
+            HistoryBackend::Database(HistoryManagerDb::new(config.clone())?)
         };
 
         // Initialize search engine
