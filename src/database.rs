@@ -523,27 +523,27 @@ impl Database {
 
     /// Get database statistics
     pub fn get_stats(&self) -> Result<DatabaseStats> {
-        let total_commands: usize =
+        let total_commands: i64 =
             self.conn
                 .query_row("SELECT COUNT(*) FROM commands", [], |row| row.get(0))?;
 
-        let total_sessions: usize =
+        let total_sessions: i64 =
             self.conn
                 .query_row("SELECT COUNT(*) FROM sessions", [], |row| row.get(0))?;
 
-        let total_hosts: usize = self
+        let total_hosts: i64 = self
             .conn
             .query_row("SELECT COUNT(*) FROM hosts", [], |row| row.get(0))?;
 
-        let redacted_commands: usize = self.conn.query_row(
+        let redacted_commands: i64 = self.conn.query_row(
             "SELECT COUNT(*) FROM commands WHERE redacted = 1",
             [],
             |row| row.get(0),
         )?;
 
-        let stored_tokens: usize =
-            self.conn
-                .query_row("SELECT COUNT(*) FROM tokens", [], |row| row.get(0))?;
+        let stored_tokens: i64 = self
+            .conn
+            .query_row("SELECT COUNT(*) FROM tokens", [], |row| row.get(0))?;
 
         let oldest_entry: Option<String> = self
             .conn
@@ -564,11 +564,11 @@ impl Database {
             .optional()?;
 
         Ok(DatabaseStats {
-            total_commands,
-            total_sessions,
-            total_hosts,
-            redacted_commands,
-            stored_tokens,
+            total_commands: total_commands as usize,
+            total_sessions: total_sessions as usize,
+            total_hosts: total_hosts as usize,
+            redacted_commands: redacted_commands as usize,
+            stored_tokens: stored_tokens as usize,
             oldest_entry: oldest_entry.and_then(|s| s.parse().ok()),
             newest_entry: newest_entry.and_then(|s| s.parse().ok()),
         })
