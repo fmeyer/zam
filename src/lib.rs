@@ -47,7 +47,10 @@ pub const DEFAULT_HISTORY_FILE: &str = "mortimer.log";
 /// Returns `~/.local/mortimer/mortimer.log`
 pub fn default_history_path() -> Result<PathBuf> {
     let home = dirs::home_dir().ok_or(Error::HomeDirectoryNotFound)?;
-    Ok(home.join(".local").join("mortimer").join(DEFAULT_HISTORY_FILE))
+    Ok(home
+        .join(".local")
+        .join("mortimer")
+        .join(DEFAULT_HISTORY_FILE))
 }
 
 /// Initialize the library with default configuration
