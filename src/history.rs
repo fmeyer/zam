@@ -1,4 +1,4 @@
-//! History management for Mortimer
+//! History management for zam
 //!
 //! This module provides comprehensive history management functionality,
 //! including logging, importing, searching, and maintaining command history

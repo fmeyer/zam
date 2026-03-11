@@ -1,4 +1,4 @@
-//! Database management for Mortimer
+//! Database management for zam
 //!
 //! This module provides SQLite-based storage for command history with support for:
 //! - Multi-host history tracking

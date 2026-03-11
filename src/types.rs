@@ -1,4 +1,4 @@
-//! Type definitions for Mortimer
+//! Type definitions for zam
 //!
 //! This module provides type-safe wrappers around primitive types
 //! to prevent accidental misuse of IDs and other domain-specific values.

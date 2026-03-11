@@ -1,4 +1,4 @@
-//! Search engine for Mortimer
+//! Search engine for zam
 //!
 //! This module provides advanced search capabilities for command history,
 //! including fuzzy search, filtering, ranking, and result highlighting.

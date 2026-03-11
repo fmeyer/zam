@@ -1,4 +1,4 @@
-//! Mortimer - Enhanced shell history manager with sensitive data redaction
+//! Zam - Enhanced shell history manager with sensitive data redaction
 //!
 //! This library provides functionality for:
 //! - Logging shell commands with automatic sensitive data redaction
@@ -9,7 +9,7 @@
 //! # Examples
 //!
 //! ```rust
-//! use mortimer::{HistoryManager, Config};
+//! use zam::{HistoryManager, Config};
 //!
 //! let config = Config::default();
 //! let mut manager = HistoryManager::new(config)?;
@@ -40,17 +40,14 @@ pub use search::SearchEngine;
 pub use types::{CommandId, HostId, SessionId};
 
 /// The default history log file name
-pub const DEFAULT_HISTORY_FILE: &str = "mortimer.log";
+pub const DEFAULT_HISTORY_FILE: &str = "zam.log";
 
 /// Get the default history file path
 ///
-/// Returns `~/.local/mortimer/mortimer.log`
+/// Returns `~/.local/zam/zam.log`
 pub fn default_history_path() -> Result<PathBuf> {
     let home = dirs::home_dir().ok_or(Error::HomeDirectoryNotFound)?;
-    Ok(home
-        .join(".local")
-        .join("mortimer")
-        .join(DEFAULT_HISTORY_FILE))
+    Ok(home.join(".local").join("zam").join(DEFAULT_HISTORY_FILE))
 }
 
 /// Initialize the library with default configuration

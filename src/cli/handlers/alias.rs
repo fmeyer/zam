@@ -1,4 +1,4 @@
-//! Alias management handlers for Mortimer CLI
+//! Alias management handlers for zam CLI
 
 use crate::cli::args::*;
 use crate::cli::{CliApp, HistoryBackend};
@@ -89,7 +89,7 @@ pub fn handle_alias(app: &mut CliApp, args: &AliasArgs) -> Result<()> {
         }
         AliasCommands::Export(export_args) => {
             let aliases = db.list_aliases()?;
-            let mut output = String::from("#!/bin/sh\n# Aliases exported by mortimer\n\n");
+            let mut output = String::from("#!/bin/sh\n# Aliases exported by zam\n\n");
 
             for a in &aliases {
                 output.push_str(&format!(
