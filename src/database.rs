@@ -656,12 +656,11 @@ impl Database {
                 let timestamp_str = caps.get(1).unwrap().as_str();
                 let command = caps.get(2).unwrap().as_str();
 
-                if let Ok(timestamp_secs) = timestamp_str.parse::<i64>() {
-                    if let Some(datetime) = DateTime::from_timestamp(timestamp_secs, 0) {
+                if let Ok(timestamp_secs) = timestamp_str.parse::<i64>()
+                    && let Some(datetime) = DateTime::from_timestamp(timestamp_secs, 0) {
                         self.add_command(command, "<imported>", datetime, false, None)?;
                         imported_count += 1;
                     }
-                }
             }
         }
 

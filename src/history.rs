@@ -109,7 +109,7 @@ impl HistoryManager {
             return Ok(());
         }
 
-        let timestamp = timestamp.unwrap_or_else(|| Utc::now());
+        let timestamp = timestamp.unwrap_or_else(Utc::now);
         let directory = env::current_dir()
             .unwrap_or_else(|_| PathBuf::from("<unknown>"))
             .to_string_lossy()
@@ -245,11 +245,10 @@ impl HistoryManager {
 
         for entry in entries {
             // Apply directory filter if specified
-            if let Some(dir_filter) = directory_filter {
-                if !entry.directory.contains(dir_filter) {
+            if let Some(dir_filter) = directory_filter
+                && !entry.directory.contains(dir_filter) {
                     continue;
                 }
-            }
 
             // Check if command matches query
             let matches = if self.config.search.case_sensitive {
@@ -481,8 +480,7 @@ impl HistoryManager {
     fn parse_fish_entry(&self, line: &str) -> Result<Option<HistoryEntry>> {
         // Fish format: "- cmd: command\n  when: timestamp\n  paths: [...]"
         // This is a simplified parser for the most common case
-        if line.starts_with("- cmd: ") {
-            let command = &line[7..]; // Remove "- cmd: "
+        if let Some(command) = line.strip_prefix("- cmd: ") {
 
             let (redacted_command, was_redacted) = if self.config.enable_redaction {
                 let original = command.to_string();
@@ -515,8 +513,7 @@ impl HistoryManager {
         // Only check the last 100 entries for performance
         let lines: Vec<String> = reader.lines().collect::<std::result::Result<Vec<_>, _>>()?;
         for line in lines.iter().rev().take(100) {
-            let line = line;
-            if let Some(parsed_entry) = self.parse_entry(&line)? {
+            if let Some(parsed_entry) = self.parse_entry(line)? {
                 recent_commands.push(parsed_entry.command);
             }
         }
@@ -646,12 +643,11 @@ impl crate::backend::HistoryProvider for HistoryManager {
 
         // Mark entries as deleted
         for &idx in indices {
-            if let Some(entry) = entries.get_mut(idx) {
-                if !entry.deleted {
+            if let Some(entry) = entries.get_mut(idx)
+                && !entry.deleted {
                     entry.deleted = true;
                     deleted_count += 1;
                 }
-            }
         }
 
         // Rewrite the history file with deleted markers

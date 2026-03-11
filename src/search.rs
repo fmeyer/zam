@@ -8,6 +8,9 @@ use crate::history::HistoryEntry;
 use regex::Regex;
 use std::collections::HashMap;
 
+/// Result of a match operation: (is_match, match_ranges, score)
+type MatchResult = (bool, Vec<(usize, usize)>, f64);
+
 /// Search engine for history entries
 #[derive(Debug, Clone)]
 pub struct SearchEngine {
@@ -57,19 +60,6 @@ pub struct SearchResult {
     pub highlighted: Option<String>,
     /// Match positions in the command
     pub matches: Vec<(usize, usize)>,
-}
-
-/// Search statistics
-#[derive(Debug, Clone, Default)]
-pub struct SearchStats {
-    /// Total entries searched
-    pub total_searched: usize,
-    /// Number of matches found
-    pub matches_found: usize,
-    /// Time taken for search (in milliseconds)
-    pub search_time_ms: u64,
-    /// Number of results returned (after limiting)
-    pub results_returned: usize,
 }
 
 impl SearchEngine {
@@ -126,10 +116,7 @@ impl SearchEngine {
         entries: &[HistoryEntry],
         query: &SearchQuery,
     ) -> Result<Vec<SearchResult>> {
-        let start_time = std::time::Instant::now();
         let mut results = Vec::new();
-        let mut stats = SearchStats::default();
-
         // Compile regex if needed
         let regex = if query.regex {
             Some(if query.case_sensitive {
@@ -149,8 +136,6 @@ impl SearchEngine {
         };
 
         for entry in entries {
-            stats.total_searched += 1;
-
             // Apply filters
             if !self.matches_filters(entry, query) {
                 continue;
@@ -166,8 +151,6 @@ impl SearchEngine {
             };
 
             if is_match {
-                stats.matches_found += 1;
-
                 let highlighted = if self.highlight_matches && !matches.is_empty() {
                     Some(self.highlight_command(&entry.command, &matches))
                 } else {
@@ -195,9 +178,6 @@ impl SearchEngine {
         if let Some(limit) = query.limit {
             results.truncate(limit);
         }
-
-        stats.results_returned = results.len();
-        stats.search_time_ms = start_time.elapsed().as_millis() as u64;
 
         Ok(results)
     }
@@ -298,18 +278,16 @@ impl SearchEngine {
     /// Check if an entry matches the query filters
     fn matches_filters(&self, entry: &HistoryEntry, query: &SearchQuery) -> bool {
         // Directory filter
-        if let Some(ref dir_filter) = query.directory {
-            if !entry.directory.contains(dir_filter) {
+        if let Some(ref dir_filter) = query.directory
+            && !entry.directory.contains(dir_filter) {
                 return false;
             }
-        }
 
         // Time range filter
-        if let Some((start, end)) = query.time_range {
-            if entry.timestamp < start || entry.timestamp > end {
+        if let Some((start, end)) = query.time_range
+            && (entry.timestamp < start || entry.timestamp > end) {
                 return false;
             }
-        }
 
         // Redacted filter
         if query.redacted_only && !entry.redacted {
@@ -325,7 +303,7 @@ impl SearchEngine {
         command: &str,
         search_term: &str,
         case_sensitive: bool,
-    ) -> (bool, Vec<(usize, usize)>, f64) {
+    ) -> MatchResult {
         let haystack = if case_sensitive {
             command
         } else {
@@ -363,7 +341,7 @@ impl SearchEngine {
         command: &str,
         search_term: &str,
         case_sensitive: bool,
-    ) -> (bool, Vec<(usize, usize)>, f64) {
+    ) -> MatchResult {
         let haystack = if case_sensitive {
             command.to_string()
         } else {
@@ -422,7 +400,7 @@ impl SearchEngine {
         &self,
         command: &str,
         regex: &Regex,
-    ) -> Result<(bool, Vec<(usize, usize)>, f64)> {
+    ) -> Result<MatchResult> {
         let mut matches = Vec::new();
 
         for mat in regex.find_iter(command) {

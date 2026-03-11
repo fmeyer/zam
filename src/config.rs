@@ -267,9 +267,9 @@ impl Config {
             return Ok(Self::default());
         }
 
-        let content = fs::read_to_string(path).map_err(|e| Error::Io(e))?;
+        let content = fs::read_to_string(path).map_err(Error::Io)?;
 
-        let config: Config = serde_json::from_str(&content).map_err(|e| Error::Json(e))?;
+        let config: Config = serde_json::from_str(&content).map_err(Error::Json)?;
 
         config.validate()?;
         Ok(config)
