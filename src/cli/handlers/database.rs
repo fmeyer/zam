@@ -1,4 +1,4 @@
-//! Database-specific handlers for Mortimer CLI
+//! Database-specific handlers for zam CLI
 
 use crate::cli::args::*;
 use crate::cli::{CliApp, HistoryBackend};

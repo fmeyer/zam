@@ -1,4 +1,4 @@
-//! Import and export handlers for Mortimer CLI
+//! Import and export handlers for zam CLI
 
 use crate::cli::args::*;
 use crate::cli::{CliApp, HistoryBackend};

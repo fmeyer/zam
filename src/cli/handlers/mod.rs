@@ -1,4 +1,4 @@
-//! Command handler implementations for Mortimer CLI
+//! Command handler implementations for zam CLI
 //!
 //! This module organizes command handlers into logical groups:
 //! - `basic`: Basic commands (log, search, recent, frequent)

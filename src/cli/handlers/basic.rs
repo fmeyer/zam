@@ -1,4 +1,4 @@
-//! Basic command handlers for Mortimer CLI
+//! Basic command handlers for zam CLI
 
 use crate::cli::args::*;
 use crate::cli::{CliApp, HistoryBackend};
@@ -280,7 +280,7 @@ pub fn handle_validate(_app: &mut CliApp, args: &ValidateArgs) -> Result<()> {
             } else {
                 println!("\nTo test this pattern against a string, use:");
                 println!(
-                    "  mortimer validate '{}' --test 'your test string'",
+                    "  zam validate '{}' --test 'your test string'",
                     args.pattern
                 );
             }

@@ -1,4 +1,4 @@
-//! Command-line interface module for Mortimer
+//! Command-line interface module for zam
 //!
 //! This module is organized into submodules:
 //! - `args`: Command-line argument structures
@@ -20,9 +20,9 @@ use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 use tracing::debug;
 
-/// Mortimer - Enhanced shell history manager with sensitive data redaction
+/// Zam - Enhanced shell history manager with sensitive data redaction
 #[derive(Parser)]
-#[command(name = "mortimer")]
+#[command(name = "zam")]
 #[command(about = "Enhanced shell history manager with sensitive data redaction")]
 #[command(version, long_about = None)]
 pub struct Cli {

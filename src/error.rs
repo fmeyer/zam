@@ -1,4 +1,4 @@
-//! Error handling for Mortimer
+//! Error handling for zam
 //!
 //! This module defines the error types used throughout the application,
 //! providing clear error messages and proper error propagation.
@@ -7,10 +7,10 @@ use std::io;
 use std::path::PathBuf;
 use thiserror::Error;
 
-/// Result type alias for Mortimer operations
+/// Result type alias for zam operations
 pub type Result<T> = std::result::Result<T, Error>;
 
-/// Main error type for Mortimer operations
+/// Main error type for zam operations
 #[derive(Error, Debug)]
 pub enum Error {
     /// IO operation failed

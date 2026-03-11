@@ -1,4 +1,4 @@
-//! Command-line argument structures for Mortimer
+//! Command-line argument structures for zam
 
 use clap::Args;
 use std::path::PathBuf;

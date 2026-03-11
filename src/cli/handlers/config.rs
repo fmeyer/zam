@@ -1,4 +1,4 @@
-//! Configuration and statistics handlers for Mortimer CLI
+//! Configuration and statistics handlers for zam CLI
 
 use crate::cli::args::*;
 use crate::cli::{CliApp, HistoryBackend};
@@ -33,7 +33,7 @@ pub fn handle_stats(app: &mut CliApp, args: &StatsArgs) -> Result<()> {
 
             println!("History Statistics (File-based)");
             println!("================================");
-            println!("Backend: File-based (mortimer.log)");
+            println!("Backend: File-based (zam.log)");
             println!("Total entries: {}", stats.total_entries);
             println!("Unique commands: {}", stats.unique_commands);
             println!("Redacted entries: {}", stats.redacted_entries);
@@ -98,7 +98,7 @@ pub fn handle_stats(app: &mut CliApp, args: &StatsArgs) -> Result<()> {
 }
 
 pub fn handle_status(app: &mut CliApp) -> Result<()> {
-    println!("Mortimer Status");
+    println!("Zam Status");
     println!("===============\n");
 
     // Show backend type
@@ -135,9 +135,9 @@ pub fn handle_status(app: &mut CliApp) -> Result<()> {
     }
 
     // Show environment variables
-    if std::env::var("MORTIMER_USE_FILE").is_ok() {
+    if std::env::var("ZAM_USE_FILE").is_ok() {
         println!("Environment:");
-        println!("  MORTIMER_USE_FILE: set (forcing file-based backend)\n");
+        println!("  ZAM_USE_FILE: set (forcing file-based backend)\n");
     }
 
     // Show configuration
@@ -201,7 +201,7 @@ pub fn handle_status(app: &mut CliApp) -> Result<()> {
         },
     }
 
-    println!("\nFor detailed statistics, run: mortimer stats");
+    println!("\nFor detailed statistics, run: zam stats");
 
     Ok(())
 }
