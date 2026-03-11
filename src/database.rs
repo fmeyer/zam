@@ -53,6 +53,16 @@ pub struct Token {
     pub created_at: DateTime<Utc>,
 }
 
+/// Represents a shell alias
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct Alias {
+    pub alias: String,
+    pub command: String,
+    pub description: String,
+    pub date_created: DateTime<Utc>,
+    pub date_updated: DateTime<Utc>,
+}
+
 /// Statistics about the database
 #[derive(Debug, Clone, Default)]
 pub struct DatabaseStats {
@@ -147,6 +157,18 @@ impl Database {
                 original_value TEXT NOT NULL,
                 created_at TEXT NOT NULL,
                 FOREIGN KEY (command_id) REFERENCES commands(id) ON DELETE CASCADE
+            )",
+            [],
+        )?;
+
+        // Aliases table
+        self.conn.execute(
+            "CREATE TABLE IF NOT EXISTS aliases (
+                alias TEXT PRIMARY KEY,
+                command TEXT NOT NULL,
+                description TEXT NOT NULL,
+                date_created TEXT NOT NULL,
+                date_updated TEXT NOT NULL
             )",
             [],
         )?;
@@ -737,6 +759,95 @@ impl Database {
         Ok(imported_count)
     }
 
+    /// Add a new alias
+    pub fn add_alias(&self, alias: &str, command: &str, description: &str) -> Result<()> {
+        let now = Utc::now().to_rfc3339();
+        self.conn.execute(
+            "INSERT INTO aliases (alias, command, description, date_created, date_updated)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![alias, command, description, now, now],
+        )?;
+        Ok(())
+    }
+
+    /// Update an existing alias
+    pub fn update_alias(
+        &self,
+        alias: &str,
+        command: &str,
+        description: Option<&str>,
+    ) -> Result<()> {
+        let now = Utc::now().to_rfc3339();
+        if let Some(desc) = description {
+            self.conn.execute(
+                "UPDATE aliases SET command = ?1, description = ?2, date_updated = ?3
+                 WHERE alias = ?4",
+                params![command, desc, now, alias],
+            )?;
+        } else {
+            self.conn.execute(
+                "UPDATE aliases SET command = ?1, date_updated = ?2 WHERE alias = ?3",
+                params![command, now, alias],
+            )?;
+        }
+        Ok(())
+    }
+
+    /// Remove an alias
+    pub fn remove_alias(&self, alias: &str) -> Result<()> {
+        self.conn
+            .execute("DELETE FROM aliases WHERE alias = ?1", params![alias])?;
+        Ok(())
+    }
+
+    /// List all aliases ordered by name
+    #[must_use = "Alias list should be used"]
+    pub fn list_aliases(&self) -> Result<Vec<Alias>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT alias, command, description, date_created, date_updated
+             FROM aliases ORDER BY alias ASC",
+        )?;
+
+        let aliases = stmt
+            .query_map([], |row| {
+                Ok(Alias {
+                    alias: row.get(0)?,
+                    command: row.get(1)?,
+                    description: row.get(2)?,
+                    date_created: row
+                        .get::<_, String>(3)?
+                        .parse()
+                        .unwrap_or_else(|_| Utc::now()),
+                    date_updated: row
+                        .get::<_, String>(4)?
+                        .parse()
+                        .unwrap_or_else(|_| Utc::now()),
+                })
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+
+        Ok(aliases)
+    }
+
+    /// Upsert aliases from shell environment (sync)
+    /// Returns the number of aliases upserted
+    pub fn sync_aliases(&self, aliases: &[(String, String)]) -> Result<usize> {
+        let now = Utc::now().to_rfc3339();
+        let mut count = 0;
+
+        for (name, command) in aliases {
+            self.conn.execute(
+                "INSERT INTO aliases (alias, command, description, date_created, date_updated)
+                 VALUES (?1, ?2, '', ?3, ?4)
+                 ON CONFLICT(alias) DO UPDATE SET command = ?2, date_updated = ?4",
+                params![name, command, now, now],
+            )?;
+            count += 1;
+        }
+
+        Ok(count)
+    }
+
     /// Clear all data (for testing)
     pub fn clear(&self) -> Result<()> {
         self.conn.execute("DELETE FROM tokens", [])?;
@@ -795,6 +906,55 @@ mod tests {
         let tokens = db.get_tokens_for_command(CommandId::new(cmd_id)).unwrap();
         assert_eq!(tokens.len(), 1);
         assert_eq!(tokens[0].original_value, "password123");
+    }
+
+    #[test]
+    fn test_alias_crud() {
+        let temp_file = NamedTempFile::new().unwrap();
+        let db = Database::new(temp_file.path()).unwrap();
+
+        // Add
+        db.add_alias("ll", "ls -la", "long listing").unwrap();
+        let aliases = db.list_aliases().unwrap();
+        assert_eq!(aliases.len(), 1);
+        assert_eq!(aliases[0].alias, "ll");
+        assert_eq!(aliases[0].command, "ls -la");
+        assert_eq!(aliases[0].description, "long listing");
+
+        // Update
+        db.update_alias("ll", "ls -lah", Some("long listing with human sizes"))
+            .unwrap();
+        let aliases = db.list_aliases().unwrap();
+        assert_eq!(aliases[0].command, "ls -lah");
+        assert_eq!(aliases[0].description, "long listing with human sizes");
+
+        // Remove
+        db.remove_alias("ll").unwrap();
+        let aliases = db.list_aliases().unwrap();
+        assert!(aliases.is_empty());
+    }
+
+    #[test]
+    fn test_alias_sync() {
+        let temp_file = NamedTempFile::new().unwrap();
+        let db = Database::new(temp_file.path()).unwrap();
+
+        let aliases = vec![
+            ("ll".to_string(), "ls -la".to_string()),
+            ("gs".to_string(), "git status".to_string()),
+        ];
+
+        let count = db.sync_aliases(&aliases).unwrap();
+        assert_eq!(count, 2);
+
+        // Sync again with updated command — should upsert
+        let updated = vec![("ll".to_string(), "ls -lah".to_string())];
+        db.sync_aliases(&updated).unwrap();
+
+        let all = db.list_aliases().unwrap();
+        assert_eq!(all.len(), 2);
+        let ll = all.iter().find(|a| a.alias == "ll").unwrap();
+        assert_eq!(ll.command, "ls -lah");
     }
 
     #[test]

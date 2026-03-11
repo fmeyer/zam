@@ -19,7 +19,7 @@ use tracing::{debug, info};
 /// Database-backed history manager
 pub struct HistoryManagerDb {
     config: Config,
-    db: Database,
+    pub(crate) db: Database,
     redaction_engine: RedactionEngine,
 }
 

@@ -7,6 +7,7 @@
 //! - `config`: Configuration and shell integration handlers
 //! - `util`: Utility functions for handlers
 
+mod alias;
 mod basic;
 mod config;
 mod database;
@@ -14,6 +15,7 @@ mod import_export;
 mod manage;
 mod shell_integration;
 
+pub use alias::*;
 pub use basic::*;
 pub use config::*;
 pub use database::*;
