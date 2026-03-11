@@ -9,7 +9,7 @@ pub fn handle_merge(app: &mut CliApp, args: &MergeArgs) -> Result<()> {
         HistoryBackend::Database(mgr) => mgr,
         HistoryBackend::File(_) => {
             return Err(Error::custom(
-                "Merge requires database backend. Use --use-db flag.",
+                "Merge requires database backend. Remove --use-file flag to use the default database backend.",
             ));
         }
     };
@@ -37,7 +37,7 @@ pub fn handle_tokens(app: &mut CliApp, args: &TokensArgs) -> Result<()> {
         HistoryBackend::Database(mgr) => mgr,
         HistoryBackend::File(_) => {
             return Err(Error::custom(
-                "Token management requires database backend. Use --use-db flag.",
+                "Token management requires database backend. Remove --use-file flag to use the default database backend.",
             ));
         }
     };
@@ -88,7 +88,7 @@ pub fn handle_hosts(app: &mut CliApp, args: &HostsArgs) -> Result<()> {
         HistoryBackend::Database(mgr) => mgr,
         HistoryBackend::File(_) => {
             return Err(Error::custom(
-                "Host management requires database backend. Use --use-db flag.",
+                "Host management requires database backend. Remove --use-file flag to use the default database backend.",
             ));
         }
     };
@@ -128,7 +128,7 @@ pub fn handle_sessions(app: &mut CliApp, args: &SessionsArgs) -> Result<()> {
         HistoryBackend::Database(mgr) => mgr,
         HistoryBackend::File(_) => {
             return Err(Error::custom(
-                "Session management requires database backend. Use --use-db flag.",
+                "Session management requires database backend. Remove --use-file flag to use the default database backend.",
             ));
         }
     };
