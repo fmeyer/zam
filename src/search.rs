@@ -279,15 +279,17 @@ impl SearchEngine {
     fn matches_filters(&self, entry: &HistoryEntry, query: &SearchQuery) -> bool {
         // Directory filter
         if let Some(ref dir_filter) = query.directory
-            && !entry.directory.contains(dir_filter) {
-                return false;
-            }
+            && !entry.directory.contains(dir_filter)
+        {
+            return false;
+        }
 
         // Time range filter
         if let Some((start, end)) = query.time_range
-            && (entry.timestamp < start || entry.timestamp > end) {
-                return false;
-            }
+            && (entry.timestamp < start || entry.timestamp > end)
+        {
+            return false;
+        }
 
         // Redacted filter
         if query.redacted_only && !entry.redacted {
@@ -298,12 +300,7 @@ impl SearchEngine {
     }
 
     /// Perform exact string matching
-    fn exact_match(
-        &self,
-        command: &str,
-        search_term: &str,
-        case_sensitive: bool,
-    ) -> MatchResult {
+    fn exact_match(&self, command: &str, search_term: &str, case_sensitive: bool) -> MatchResult {
         let haystack = if case_sensitive {
             command
         } else {
@@ -336,12 +333,7 @@ impl SearchEngine {
     }
 
     /// Perform fuzzy matching using a simple algorithm
-    fn fuzzy_match(
-        &self,
-        command: &str,
-        search_term: &str,
-        case_sensitive: bool,
-    ) -> MatchResult {
+    fn fuzzy_match(&self, command: &str, search_term: &str, case_sensitive: bool) -> MatchResult {
         let haystack = if case_sensitive {
             command.to_string()
         } else {
@@ -396,11 +388,7 @@ impl SearchEngine {
     }
 
     /// Perform regex matching
-    fn regex_match(
-        &self,
-        command: &str,
-        regex: &Regex,
-    ) -> Result<MatchResult> {
+    fn regex_match(&self, command: &str, regex: &Regex) -> Result<MatchResult> {
         let mut matches = Vec::new();
 
         for mat in regex.find_iter(command) {

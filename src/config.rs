@@ -333,7 +333,7 @@ impl Config {
                 return Err(Error::config_validation(
                     "logging.level",
                     "must be one of: trace, debug, info, warn, error",
-                ))
+                ));
             }
         }
 
@@ -445,9 +445,14 @@ mod tests {
         let temp_file = NamedTempFile::new().unwrap();
         let config_path = temp_file.path().to_path_buf();
 
-        let mut config = Config::default();
-        config.max_entries = 50000;
-        config.redaction.placeholder = "<HIDDEN>".to_string();
+        let config = Config {
+            max_entries: 50000,
+            redaction: RedactionConfig {
+                placeholder: "<HIDDEN>".to_string(),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
 
         // Save configuration
         config.save_to_path(&config_path).unwrap();
@@ -487,12 +492,16 @@ mod tests {
 
     #[test]
     fn test_config_merge() {
-        let mut config1 = Config::default();
-        config1.max_entries = 1000;
+        let mut config1 = Config {
+            max_entries: 1000,
+            ..Default::default()
+        };
 
-        let mut config2 = Config::default();
-        config2.max_entries = 2000;
-        config2.enable_redaction = false;
+        let config2 = Config {
+            max_entries: 2000,
+            enable_redaction: false,
+            ..Default::default()
+        };
 
         config1.merge(&config2);
 

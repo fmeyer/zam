@@ -6,7 +6,7 @@
 use mortimer::cli;
 use mortimer::error::Result;
 use std::process;
-use tracing_subscriber::{fmt, EnvFilter};
+use tracing_subscriber::{EnvFilter, fmt};
 
 fn main() {
     // Initialize tracing based on RUST_LOG environment variable

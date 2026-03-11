@@ -9,7 +9,7 @@
 use crate::error::Result;
 use crate::types::{CommandId, HostId, SessionId};
 use chrono::{DateTime, Utc};
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{Connection, OptionalExtension, params};
 use std::path::Path;
 use uuid::Uuid;
 
@@ -657,10 +657,11 @@ impl Database {
                 let command = caps.get(2).unwrap().as_str();
 
                 if let Ok(timestamp_secs) = timestamp_str.parse::<i64>()
-                    && let Some(datetime) = DateTime::from_timestamp(timestamp_secs, 0) {
-                        self.add_command(command, "<imported>", datetime, false, None)?;
-                        imported_count += 1;
-                    }
+                    && let Some(datetime) = DateTime::from_timestamp(timestamp_secs, 0)
+                {
+                    self.add_command(command, "<imported>", datetime, false, None)?;
+                    imported_count += 1;
+                }
             }
         }
 
@@ -804,7 +805,8 @@ impl Database {
 
     /// Delete a specific command by ID
     pub fn delete_command(&self, id: CommandId) -> Result<()> {
-        self.conn.execute("DELETE FROM commands WHERE id = ?1", [id.0])?;
+        self.conn
+            .execute("DELETE FROM commands WHERE id = ?1", [id.0])?;
         Ok(())
     }
 }

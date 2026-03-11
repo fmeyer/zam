@@ -11,15 +11,15 @@ use crate::history::HistoryEntry;
 use crossterm::{
     event::{self, Event, KeyCode, KeyEvent, KeyModifiers},
     execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 use ratatui::{
+    Frame, Terminal,
     backend::CrosstermBackend,
     layout::{Constraint, Direction, Layout},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Wrap},
-    Frame, Terminal,
 };
 use std::io;
 
@@ -155,7 +155,7 @@ impl ManagementUI {
             Layout::default()
                 .direction(Direction::Vertical)
                 .constraints([
-                    Constraint::Length(3),   // Header
+                    Constraint::Length(3),      // Header
                     Constraint::Percentage(50), // List
                     Constraint::Percentage(50), // Help
                 ])
@@ -164,18 +164,26 @@ impl ManagementUI {
             Layout::default()
                 .direction(Direction::Vertical)
                 .constraints([
-                    Constraint::Length(3),   // Header
-                    Constraint::Min(10),     // List
-                    Constraint::Length(5),   // Details
+                    Constraint::Length(3), // Header
+                    Constraint::Min(10),   // List
+                    Constraint::Length(5), // Details
                 ])
                 .split(frame.area())
         };
 
         // Header
         let title = if !self.filter.is_empty() {
-            format!("History Manager - Filter: {} ({} matches)", self.filter, self.filtered_indices.len())
+            format!(
+                "History Manager - Filter: {} ({} matches)",
+                self.filter,
+                self.filtered_indices.len()
+            )
         } else {
-            format!("History Manager ({} entries, {} marked for deletion)", self.entries.len(), self.to_delete.len())
+            format!(
+                "History Manager ({} entries, {} marked for deletion)",
+                self.entries.len(),
+                self.to_delete.len()
+            )
         };
         let header = Paragraph::new(title)
             .block(Block::default().borders(Borders::ALL))
@@ -189,18 +197,31 @@ impl ManagementUI {
             .map(|&idx| {
                 let entry = &self.entries[idx];
                 let timestamp = entry.timestamp.format("%Y-%m-%d %H:%M");
-                let marked = if self.to_delete.contains(&idx) { "[MARK] " } else { "" };
+                let marked = if self.to_delete.contains(&idx) {
+                    "[MARK] "
+                } else {
+                    ""
+                };
                 let deleted = if entry.deleted { "[DELETED] " } else { "" };
                 let redacted = if entry.redacted { "[R] " } else { "" };
 
                 let line = Line::from(vec![
-                    Span::styled(format!("{}{}{}", deleted, marked, redacted), Style::default().fg(Color::Red)),
-                    Span::styled(format!("{} ", timestamp), Style::default().fg(Color::DarkGray)),
-                    Span::styled(&entry.command, if entry.deleted {
-                        Style::default().fg(Color::DarkGray)
-                    } else {
-                        Style::default().fg(Color::White)
-                    }),
+                    Span::styled(
+                        format!("{}{}{}", deleted, marked, redacted),
+                        Style::default().fg(Color::Red),
+                    ),
+                    Span::styled(
+                        format!("{} ", timestamp),
+                        Style::default().fg(Color::DarkGray),
+                    ),
+                    Span::styled(
+                        &entry.command,
+                        if entry.deleted {
+                            Style::default().fg(Color::DarkGray)
+                        } else {
+                            Style::default().fg(Color::White)
+                        },
+                    ),
                 ]);
                 ListItem::new(line)
             })
@@ -238,20 +259,25 @@ impl ManagementUI {
                 .wrap(Wrap { trim: false });
             frame.render_widget(help, chunks[2]);
         } else if let Some(&idx) = self.filtered_indices.get(self.selected)
-            && let Some(entry) = self.entries.get(idx) {
-                let details = format!(
-                    "Command: {}\nDirectory: {}\nTimestamp: {}\nRedacted: {}\nMarked for deletion: {}",
-                    entry.command,
-                    entry.directory,
-                    entry.timestamp.format("%Y-%m-%d %H:%M:%S"),
-                    if entry.redacted { "Yes" } else { "No" },
-                    if self.to_delete.contains(&idx) { "Yes" } else { "No" }
-                );
-                let details_widget = Paragraph::new(details)
-                    .block(Block::default().borders(Borders::ALL).title("Details"))
-                    .style(Style::default().fg(Color::Green))
-                    .wrap(Wrap { trim: false });
-                frame.render_widget(details_widget, chunks[2]);
+            && let Some(entry) = self.entries.get(idx)
+        {
+            let details = format!(
+                "Command: {}\nDirectory: {}\nTimestamp: {}\nRedacted: {}\nMarked for deletion: {}",
+                entry.command,
+                entry.directory,
+                entry.timestamp.format("%Y-%m-%d %H:%M:%S"),
+                if entry.redacted { "Yes" } else { "No" },
+                if self.to_delete.contains(&idx) {
+                    "Yes"
+                } else {
+                    "No"
+                }
+            );
+            let details_widget = Paragraph::new(details)
+                .block(Block::default().borders(Borders::ALL).title("Details"))
+                .style(Style::default().fg(Color::Green))
+                .wrap(Wrap { trim: false });
+            frame.render_widget(details_widget, chunks[2]);
         }
     }
 
@@ -277,14 +303,15 @@ pub fn run_management_ui(entries: Vec<HistoryEntry>) -> Result<Vec<usize>> {
             terminal.draw(|f| ui.render(f))?;
 
             if event::poll(std::time::Duration::from_millis(100))?
-                && let Event::Key(key) = event::read()? {
-                    // Check if Enter was pressed
-                    if matches!(key.code, KeyCode::Enter) {
-                        ui.running = false;
-                        break;
-                    }
-                    ui.handle_key(key);
+                && let Event::Key(key) = event::read()?
+            {
+                // Check if Enter was pressed
+                if matches!(key.code, KeyCode::Enter) {
+                    ui.running = false;
+                    break;
                 }
+                ui.handle_key(key);
+            }
         }
         Ok(())
     })();

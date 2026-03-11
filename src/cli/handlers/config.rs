@@ -125,7 +125,10 @@ pub fn handle_status(app: &mut CliApp) -> Result<()> {
             println!("Type: Multi-host, session-aware\n");
 
             if app.config.history_file.exists() {
-                println!("Note: Log file also exists at {}", app.config.history_file.display());
+                println!(
+                    "Note: Log file also exists at {}",
+                    app.config.history_file.display()
+                );
                 println!("   Using database backend takes priority\n");
             }
         }

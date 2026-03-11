@@ -49,7 +49,12 @@ pub fn handle_alias(app: &mut CliApp, args: &AliasArgs) -> Result<()> {
                 println!("No aliases found.");
             } else {
                 // Calculate column widths
-                let name_width = aliases.iter().map(|a| a.alias.len()).max().unwrap_or(5).max(5);
+                let name_width = aliases
+                    .iter()
+                    .map(|a| a.alias.len())
+                    .max()
+                    .unwrap_or(5)
+                    .max(5);
                 let cmd_width = aliases
                     .iter()
                     .map(|a| a.command.len())

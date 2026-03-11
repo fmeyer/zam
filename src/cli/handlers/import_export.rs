@@ -47,9 +47,10 @@ pub fn handle_export(app: &mut CliApp, args: &ExportArgs) -> Result<()> {
         .into_iter()
         .filter(|entry| {
             if let Some(dir) = &args.directory
-                && !entry.directory.contains(dir) {
-                    return false;
-                }
+                && !entry.directory.contains(dir)
+            {
+                return false;
+            }
 
             if let Some(days) = args.days {
                 let cutoff = chrono::Utc::now() - chrono::Duration::days(days as i64);
