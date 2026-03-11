@@ -10,7 +10,7 @@ pub fn handle_alias(app: &mut CliApp, args: &AliasArgs) -> Result<()> {
         HistoryBackend::Database(mgr) => &mgr.db,
         HistoryBackend::File(_) => {
             return Err(Error::custom(
-                "Alias management requires the database backend. Use --use-db flag.",
+                "Alias management requires the database backend. Remove --use-file flag to use the default database backend.",
             ));
         }
     };
