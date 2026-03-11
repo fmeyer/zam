@@ -15,7 +15,7 @@ use crossterm::{
 };
 use ratatui::{
     backend::CrosstermBackend,
-    layout::{Constraint, Direction, Layout, Rect},
+    layout::{Constraint, Direction, Layout},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Wrap},
@@ -237,8 +237,8 @@ impl ManagementUI {
                 .style(Style::default().fg(Color::Yellow))
                 .wrap(Wrap { trim: false });
             frame.render_widget(help, chunks[2]);
-        } else if let Some(&idx) = self.filtered_indices.get(self.selected) {
-            if let Some(entry) = self.entries.get(idx) {
+        } else if let Some(&idx) = self.filtered_indices.get(self.selected)
+            && let Some(entry) = self.entries.get(idx) {
                 let details = format!(
                     "Command: {}\nDirectory: {}\nTimestamp: {}\nRedacted: {}\nMarked for deletion: {}",
                     entry.command,
@@ -252,7 +252,6 @@ impl ManagementUI {
                     .style(Style::default().fg(Color::Green))
                     .wrap(Wrap { trim: false });
                 frame.render_widget(details_widget, chunks[2]);
-            }
         }
     }
 
@@ -277,8 +276,8 @@ pub fn run_management_ui(entries: Vec<HistoryEntry>) -> Result<Vec<usize>> {
         while ui.running {
             terminal.draw(|f| ui.render(f))?;
 
-            if event::poll(std::time::Duration::from_millis(100))? {
-                if let Event::Key(key) = event::read()? {
+            if event::poll(std::time::Duration::from_millis(100))?
+                && let Event::Key(key) = event::read()? {
                     // Check if Enter was pressed
                     if matches!(key.code, KeyCode::Enter) {
                         ui.running = false;
@@ -286,7 +285,6 @@ pub fn run_management_ui(entries: Vec<HistoryEntry>) -> Result<Vec<usize>> {
                     }
                     ui.handle_key(key);
                 }
-            }
         }
         Ok(())
     })();

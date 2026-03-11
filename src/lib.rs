@@ -39,13 +39,17 @@ pub use redaction::RedactionEngine;
 pub use search::SearchEngine;
 pub use types::{CommandId, HostId, SessionId};
 
-/// The default history file name
-pub const DEFAULT_HISTORY_FILE: &str = ".mhist";
+/// The default history log file name
+pub const DEFAULT_HISTORY_FILE: &str = "mortimer.log";
 
 /// Get the default history file path
+///
+/// Returns `<data_local_dir>/log/mortimer/mortimer.log`:
+/// - Linux: `~/.local/share/log/mortimer/mortimer.log`
+/// - macOS: `~/Library/Application Support/log/mortimer/mortimer.log`
 pub fn default_history_path() -> Result<PathBuf> {
-    let home = home::home_dir().ok_or(Error::HomeDirectoryNotFound)?;
-    Ok(home.join(DEFAULT_HISTORY_FILE))
+    let data_dir = dirs::data_local_dir().ok_or(Error::HomeDirectoryNotFound)?;
+    Ok(data_dir.join("log").join("mortimer").join(DEFAULT_HISTORY_FILE))
 }
 
 /// Initialize the library with default configuration

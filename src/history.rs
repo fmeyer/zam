@@ -109,7 +109,7 @@ impl HistoryManager {
             return Ok(());
         }
 
-        let timestamp = timestamp.unwrap_or_else(|| Utc::now());
+        let timestamp = timestamp.unwrap_or_else(Utc::now);
         let directory = env::current_dir()
             .unwrap_or_else(|_| PathBuf::from("<unknown>"))
             .to_string_lossy()
@@ -245,11 +245,10 @@ impl HistoryManager {
 
         for entry in entries {
             // Apply directory filter if specified
-            if let Some(dir_filter) = directory_filter {
-                if !entry.directory.contains(dir_filter) {
+            if let Some(dir_filter) = directory_filter
+                && !entry.directory.contains(dir_filter) {
                     continue;
                 }
-            }
 
             // Check if command matches query
             let matches = if self.config.search.case_sensitive {
@@ -340,40 +339,65 @@ impl HistoryManager {
         Ok(())
     }
 
-    /// Format an entry for writing to file
+    /// Format an entry for writing to the log file
+    ///
+    /// Format: `[ISO8601] dir=/path cmd=command`
+    /// Newlines in commands are escaped as `\n`.
     fn format_entry(&self, entry: &HistoryEntry) -> String {
-        let timestamp_str = entry.timestamp.format("%Y-%m-%d %H:%M:%S").to_string();
+        let timestamp_str = entry.timestamp.to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+        let escaped_cmd = entry.command.replace('\\', "\\\\").replace('\n', "\\n");
+        let deleted_marker = if entry.deleted { " deleted=true" } else { "" };
         format!(
-            "{} | {} | {}",
-            timestamp_str, entry.directory, entry.command
+            "[{}] dir={} cmd={}{}",
+            timestamp_str, entry.directory, escaped_cmd, deleted_marker
         )
     }
 
-    /// Parse a line from the history file
+    /// Parse a line from the log file
+    ///
+    /// Format: `[ISO8601] dir=/path cmd=command`
     fn parse_entry(&self, line: &str) -> Result<Option<HistoryEntry>> {
-        let parts: Vec<&str> = line.splitn(3, " | ").collect();
-        if parts.len() != 3 {
+        let line = line.trim();
+        if !line.starts_with('[') {
             return Ok(None);
         }
 
-        let timestamp_str = parts[0];
-        let directory = parts[1].to_string();
-        let mut command = parts[2].to_string();
+        let close_bracket = match line.find("] ") {
+            Some(pos) => pos,
+            None => return Ok(None),
+        };
 
-        // Parse timestamp
-        let timestamp = chrono::NaiveDateTime::parse_from_str(timestamp_str, "%Y-%m-%d %H:%M:%S")
+        let timestamp_str = &line[1..close_bracket];
+        let rest = &line[close_bracket + 2..];
+
+        let timestamp: DateTime<Utc> = timestamp_str
+            .parse()
             .map_err(|_| Error::InvalidTimestamp {
                 timestamp: timestamp_str.to_string(),
-            })?
-            .and_utc();
+            })?;
 
-        // Detect if the command was deleted
-        let was_deleted = command.starts_with("[DELETED] ");
-        if was_deleted {
-            command = command.trim_start_matches("[DELETED] ").to_string();
+        let dir_prefix = "dir=";
+        if !rest.starts_with(dir_prefix) {
+            return Ok(None);
         }
 
-        // Detect if the command was redacted by checking for redaction markers
+        let after_dir = &rest[dir_prefix.len()..];
+        let cmd_marker = " cmd=";
+        let cmd_pos = match after_dir.find(cmd_marker) {
+            Some(pos) => pos,
+            None => return Ok(None),
+        };
+
+        let directory = after_dir[..cmd_pos].to_string();
+        let mut remaining = after_dir[cmd_pos + cmd_marker.len()..].to_string();
+
+        let was_deleted = remaining.ends_with(" deleted=true");
+        if was_deleted {
+            remaining = remaining.trim_end_matches(" deleted=true").to_string();
+        }
+
+        // Unescape: \\n -> \n, \\\\ -> \\
+        let command = remaining.replace("\\n", "\n").replace("\\\\", "\\");
         let was_redacted = command.contains("<redacted>");
 
         Ok(Some(HistoryEntry {
@@ -456,8 +480,7 @@ impl HistoryManager {
     fn parse_fish_entry(&self, line: &str) -> Result<Option<HistoryEntry>> {
         // Fish format: "- cmd: command\n  when: timestamp\n  paths: [...]"
         // This is a simplified parser for the most common case
-        if line.starts_with("- cmd: ") {
-            let command = &line[7..]; // Remove "- cmd: "
+        if let Some(command) = line.strip_prefix("- cmd: ") {
 
             let (redacted_command, was_redacted) = if self.config.enable_redaction {
                 let original = command.to_string();
@@ -490,8 +513,7 @@ impl HistoryManager {
         // Only check the last 100 entries for performance
         let lines: Vec<String> = reader.lines().collect::<std::result::Result<Vec<_>, _>>()?;
         for line in lines.iter().rev().take(100) {
-            let line = line;
-            if let Some(parsed_entry) = self.parse_entry(&line)? {
+            if let Some(parsed_entry) = self.parse_entry(line)? {
                 recent_commands.push(parsed_entry.command);
             }
         }
@@ -621,12 +643,11 @@ impl crate::backend::HistoryProvider for HistoryManager {
 
         // Mark entries as deleted
         for &idx in indices {
-            if let Some(entry) = entries.get_mut(idx) {
-                if !entry.deleted {
+            if let Some(entry) = entries.get_mut(idx)
+                && !entry.deleted {
                     entry.deleted = true;
                     deleted_count += 1;
                 }
-            }
         }
 
         // Rewrite the history file with deleted markers
@@ -634,15 +655,7 @@ impl crate::backend::HistoryProvider for HistoryManager {
         let mut writer = BufWriter::new(file);
 
         for entry in &entries {
-            let deleted_marker = if entry.deleted { "[DELETED] " } else { "" };
-            let line = format!(
-                "{} | {} | {}{}\n",
-                entry.timestamp.format("%Y-%m-%d %H:%M:%S"),
-                entry.directory,
-                deleted_marker,
-                entry.command
-            );
-            writer.write_all(line.as_bytes())?;
+            writeln!(writer, "{}", self.format_entry(entry))?;
         }
         writer.flush()?;
 

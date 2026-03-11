@@ -256,21 +256,6 @@ pub struct ValidateArgs {
 }
 
 #[derive(Args)]
-pub struct MigrateArgs {
-    /// Path to legacy .mhist file
-    #[arg(value_name = "MHIST_FILE")]
-    pub mhist_file: PathBuf,
-
-    /// Show what would be migrated without actually migrating
-    #[arg(long)]
-    pub dry_run: bool,
-
-    /// Show progress during migration
-    #[arg(long)]
-    pub progress: bool,
-}
-
-#[derive(Args)]
 pub struct MergeArgs {
     /// Path to database file to merge from
     #[arg(value_name = "DB_FILE")]

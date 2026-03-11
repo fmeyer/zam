@@ -33,7 +33,7 @@ pub fn handle_stats(app: &mut CliApp, args: &StatsArgs) -> Result<()> {
 
             println!("History Statistics (File-based)");
             println!("================================");
-            println!("Backend: File (~/.mhist)");
+            println!("Backend: File-based (mortimer.log)");
             println!("Total entries: {}", stats.total_entries);
             println!("Unique commands: {}", stats.unique_commands);
             println!("Redacted entries: {}", stats.redacted_entries);
@@ -106,15 +106,14 @@ pub fn handle_status(app: &mut CliApp) -> Result<()> {
         HistoryBackend::File(_) => {
             println!("Backend: File-based");
             println!("Storage: {}", app.config.history_file.display());
-            println!("Type: Legacy .mhist format\n");
+            println!("Type: Structured log format\n");
 
             if app.config.history_file.with_extension("db").exists() {
                 println!(
-                    "⚠️  Note: A database file exists at {}",
+                    "Note: A database file exists at {}",
                     app.config.history_file.with_extension("db").display()
                 );
-                println!("   To use it, run commands with --use-db flag");
-                println!("   Or delete the .mhist file to auto-switch\n");
+                println!("   To use it, run commands with --use-db flag\n");
             }
         }
         HistoryBackend::Database(_) => {
@@ -126,8 +125,8 @@ pub fn handle_status(app: &mut CliApp) -> Result<()> {
             println!("Type: Multi-host, session-aware\n");
 
             if app.config.history_file.exists() {
-                println!("ℹ️  Note: Legacy .mhist file still exists");
-                println!("   You can safely delete it after verifying migration\n");
+                println!("Note: Log file also exists at {}", app.config.history_file.display());
+                println!("   Using database backend takes priority\n");
             }
         }
     }

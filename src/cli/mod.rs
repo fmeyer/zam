@@ -84,8 +84,6 @@ pub enum Commands {
     Validate(ValidateArgs),
     /// Show backend status and configuration
     Status,
-    /// Migrate from legacy .mhist file to database
-    Migrate(MigrateArgs),
     /// Merge databases from different machines
     Merge(MergeArgs),
     /// Manage and retrieve stored tokens
@@ -189,7 +187,6 @@ impl CliApp {
             Commands::Manage => handle_manage(self),
             Commands::Validate(args) => handle_validate(self, args),
             Commands::Status => handle_status(self),
-            Commands::Migrate(args) => handle_migrate(self, args),
             Commands::Merge(args) => handle_merge(self, args),
             Commands::Tokens(args) => handle_tokens(self, args),
             Commands::Hosts(args) => handle_hosts(self, args),
