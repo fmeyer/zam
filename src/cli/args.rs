@@ -17,6 +17,10 @@ pub struct LogArgs {
     #[arg(short = 'D', long)]
     pub directory: Option<String>,
 
+    /// Exit code of the command
+    #[arg(short = 'e', long)]
+    pub exit_code: Option<i32>,
+
     /// Skip redaction for this command
     #[arg(long)]
     pub no_redact: bool,
