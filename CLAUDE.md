@@ -87,7 +87,6 @@ Backend selection logic (in `cli/mod.rs:114-138`):
   - `import_export.rs`: import/export functionality
   - `shell_integration.rs`: shell integration script generation
   - `tui_handler.rs`: interactive TUI entity browser
-  - `manage.rs`: legacy interactive history browser
   - `alias.rs`: alias management
 
 **Core Library** (`src/` root):
@@ -95,7 +94,6 @@ Backend selection logic (in `cli/mod.rs:114-138`):
 - `history_db.rs`: Database-backed history manager (`HistoryManagerDb`)
 - `database.rs`: Low-level SQLite operations, schema, and queries
 - `tui.rs`: Interactive TUI with tabbed entity browser (Local, Top 50, History, Aliases, Hosts, Sessions, Tokens)
-- `manage_tui.rs`: Legacy interactive history browser
 - `redaction.rs`: Sensitive data detection and redaction engine
 - `search.rs`: Search functionality with fuzzy matching and regex
 - `config.rs`: Configuration loading and management
