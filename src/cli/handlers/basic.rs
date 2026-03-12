@@ -22,17 +22,17 @@ pub fn handle_log(app: &mut CliApp, args: &LogArgs) -> Result<()> {
     };
 
     // Log the command
-    if timestamp.is_none() {
+    if timestamp.is_none() && args.exit_code.is_none() {
         // Use trait method for simple case
         app.provider_mut().log_command(&args.command)?;
     } else {
-        // Use backend-specific methods for timestamp support
+        // Use backend-specific methods for timestamp/exit_code support
         match &mut app.backend {
             HistoryBackend::File(mgr) => {
                 mgr.log_command_with_timestamp(&args.command, timestamp)?;
             }
             HistoryBackend::Database(mgr) => {
-                mgr.log_command_with_timestamp(&args.command, timestamp, None)?;
+                mgr.log_command_with_timestamp(&args.command, timestamp, args.exit_code)?;
             }
         }
     }

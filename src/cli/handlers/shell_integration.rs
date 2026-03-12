@@ -27,13 +27,13 @@ fn generate_zsh_integration() -> String {
     r#"# Zam Zsh Integration
 # Add this to your ~/.zshrc
 
-# Log only successful commands
+# Log commands with exit code
 _zam_last_cmd=""
 _zam_preexec() { _zam_last_cmd="$1"; }
 _zam_precmd() {
     local rc=$?
-    if [[ $rc -eq 0 && -n "$_zam_last_cmd" ]]; then
-        zam log "$_zam_last_cmd"
+    if [[ -n "$_zam_last_cmd" ]]; then
+        zam log --exit-code "$rc" "$_zam_last_cmd"
     fi
     _zam_last_cmd=""
 }
@@ -63,13 +63,18 @@ fn generate_bash_integration() -> String {
     r#"# Zam Bash Integration
 # Add this to your ~/.bashrc
 
-# Function to log commands
-log_command() {
-    zam log "$1"
+# Log commands with exit code
+_zam_last_cmd=""
+_zam_preexec() { _zam_last_cmd="$1"; }
+_zam_precmd() {
+    local rc=$?
+    if [[ -n "$_zam_last_cmd" ]]; then
+        zam log --exit-code "$rc" "$_zam_last_cmd"
+    fi
+    _zam_last_cmd=""
 }
-
-# Hook to log commands after execution
-PROMPT_COMMAND="log_command \"\$BASH_COMMAND\"; $PROMPT_COMMAND"
+PROMPT_COMMAND="_zam_precmd; $PROMPT_COMMAND"
+trap '_zam_preexec "$BASH_COMMAND"' DEBUG
 
 # Interactive history search with fzf (Ctrl+R)
 bind -x '"\C-r": "READLINE_LINE=$(zam fzf | fzf --height 50% --reverse --tac 2>/dev/tty); READLINE_POINT=${#READLINE_LINE}"'
@@ -84,9 +89,9 @@ fn generate_fish_integration() -> String {
     r#"# Zam Fish Integration
 # Add this to your ~/.config/fish/config.fish
 
-# Function to log commands
-function zam_log_command --on-event fish_preexec
-    zam log "$argv[1]" &
+# Log commands with exit code
+function zam_log_command --on-event fish_postexec
+    zam log --exit-code "$status" "$argv[1]" &
 end
 
 # Interactive history search with fzf (Ctrl+R)
