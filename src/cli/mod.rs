@@ -90,6 +90,8 @@ pub enum Commands {
     Sessions(SessionsArgs),
     /// Manage shell aliases
     Alias(AliasArgs),
+    /// Interactive entity browser (database only)
+    Tui,
 }
 
 /// History backend type
@@ -181,6 +183,7 @@ impl CliApp {
             Commands::Hosts(args) => handle_hosts(self, args),
             Commands::Sessions(args) => handle_sessions(self, args),
             Commands::Alias(args) => handle_alias(self, args),
+            Commands::Tui => handle_tui(self),
         }
     }
 

@@ -14,6 +14,7 @@ mod database;
 mod import_export;
 mod manage;
 mod shell_integration;
+mod tui_handler;
 
 pub use alias::*;
 pub use basic::*;
@@ -22,3 +23,4 @@ pub use database::*;
 pub use import_export::*;
 pub use manage::*;
 pub use shell_integration::*;
+pub use tui_handler::*;
