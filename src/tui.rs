@@ -685,7 +685,7 @@ impl<'a> AppTUI<'a> {
     }
 
     fn render_commands(&mut self, frame: &mut Frame, area: Rect) {
-        let header = Row::new(vec!["ID", "Timestamp", "Command", "Directory", "R"]).style(
+        let header = Row::new(vec!["Timestamp", "Command", "Directory", "R"]).style(
             Style::default()
                 .fg(Color::Yellow)
                 .add_modifier(Modifier::BOLD),
@@ -698,7 +698,6 @@ impl<'a> AppTUI<'a> {
             .map(|c| {
                 let r = if c.redacted { "Y" } else { "" };
                 Row::new(vec![
-                    Cell::from(c.id.to_string()),
                     Cell::from(c.timestamp.format("%Y-%m-%d %H:%M").to_string()),
                     Cell::from(c.command.chars().take(60).collect::<String>()),
                     Cell::from(truncate(&c.directory, 25)),
@@ -710,7 +709,6 @@ impl<'a> AppTUI<'a> {
         let table = Table::new(
             rows,
             [
-                Constraint::Length(6),
                 Constraint::Length(16),
                 Constraint::Min(20),
                 Constraint::Length(25),
@@ -733,7 +731,7 @@ impl<'a> AppTUI<'a> {
     }
 
     fn render_local(&mut self, frame: &mut Frame, area: Rect) {
-        let header = Row::new(vec!["ID", "Timestamp", "Command", "R"]).style(
+        let header = Row::new(vec!["Timestamp", "Command", "R"]).style(
             Style::default()
                 .fg(Color::Yellow)
                 .add_modifier(Modifier::BOLD),
@@ -746,7 +744,6 @@ impl<'a> AppTUI<'a> {
             .map(|c| {
                 let r = if c.redacted { "Y" } else { "" };
                 Row::new(vec![
-                    Cell::from(c.id.to_string()),
                     Cell::from(c.timestamp.format("%Y-%m-%d %H:%M").to_string()),
                     Cell::from(c.command.chars().take(80).collect::<String>()),
                     Cell::from(r),
@@ -758,7 +755,6 @@ impl<'a> AppTUI<'a> {
         let table = Table::new(
             rows,
             [
-                Constraint::Length(6),
                 Constraint::Length(16),
                 Constraint::Min(20),
                 Constraint::Length(1),
@@ -809,7 +805,7 @@ impl<'a> AppTUI<'a> {
     }
 
     fn render_hosts(&mut self, frame: &mut Frame, area: Rect) {
-        let header = Row::new(vec!["ID", "Hostname", "Created"]).style(
+        let header = Row::new(vec!["Hostname", "Created"]).style(
             Style::default()
                 .fg(Color::Yellow)
                 .add_modifier(Modifier::BOLD),
@@ -821,7 +817,6 @@ impl<'a> AppTUI<'a> {
             .filter(|h| self.matches_filter(&h.hostname))
             .map(|h| {
                 Row::new(vec![
-                    Cell::from(h.id.to_string()),
                     Cell::from(h.hostname.as_str()),
                     Cell::from(h.created_at.format("%Y-%m-%d %H:%M").to_string()),
                 ])
@@ -831,7 +826,6 @@ impl<'a> AppTUI<'a> {
         let table = Table::new(
             rows,
             [
-                Constraint::Length(6),
                 Constraint::Min(20),
                 Constraint::Length(16),
             ],
@@ -844,7 +838,7 @@ impl<'a> AppTUI<'a> {
     }
 
     fn render_sessions(&mut self, frame: &mut Frame, area: Rect) {
-        let header = Row::new(vec!["ID", "Host", "Started", "Ended"]).style(
+        let header = Row::new(vec!["Session", "Started", "Ended"]).style(
             Style::default()
                 .fg(Color::Yellow)
                 .add_modifier(Modifier::BOLD),
@@ -861,7 +855,6 @@ impl<'a> AppTUI<'a> {
                     .unwrap_or_else(|| "active".into());
                 Row::new(vec![
                     Cell::from(truncate(s.id.as_ref(), 12)),
-                    Cell::from(s.host_id.to_string()),
                     Cell::from(s.started_at.format("%Y-%m-%d %H:%M").to_string()),
                     Cell::from(ended),
                 ])
@@ -872,7 +865,6 @@ impl<'a> AppTUI<'a> {
             rows,
             [
                 Constraint::Length(14),
-                Constraint::Length(6),
                 Constraint::Length(16),
                 Constraint::Min(16),
             ],
@@ -890,7 +882,7 @@ impl<'a> AppTUI<'a> {
         } else {
             "Tokens (v=show values)"
         };
-        let header = Row::new(vec!["ID", "Cmd", "Type", "Placeholder", "Value", "Created"]).style(
+        let header = Row::new(vec!["Type", "Placeholder", "Value", "Created"]).style(
             Style::default()
                 .fg(Color::Yellow)
                 .add_modifier(Modifier::BOLD),
@@ -907,8 +899,6 @@ impl<'a> AppTUI<'a> {
                     "***".into()
                 };
                 Row::new(vec![
-                    Cell::from(t.id.to_string()),
-                    Cell::from(t.command_id.to_string()),
                     Cell::from(t.token_type.as_str()),
                     Cell::from(truncate(&t.placeholder, 20)),
                     Cell::from(val),
@@ -920,8 +910,6 @@ impl<'a> AppTUI<'a> {
         let table = Table::new(
             rows,
             [
-                Constraint::Length(5),
-                Constraint::Length(5),
                 Constraint::Length(12),
                 Constraint::Length(20),
                 Constraint::Min(10),
