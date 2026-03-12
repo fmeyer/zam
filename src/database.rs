@@ -809,6 +809,81 @@ impl Database {
             .execute("DELETE FROM commands WHERE id = ?1", [id.0])?;
         Ok(())
     }
+
+    /// Get all sessions across all hosts
+    pub fn get_all_sessions(&self) -> Result<Vec<Session>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, host_id, started_at, ended_at
+             FROM sessions
+             ORDER BY started_at DESC",
+        )?;
+
+        let sessions = stmt
+            .query_map([], |row| {
+                Ok(Session {
+                    id: SessionId::new(row.get(0)?),
+                    host_id: HostId::new(row.get(1)?),
+                    started_at: row
+                        .get::<_, String>(2)?
+                        .parse()
+                        .unwrap_or_else(|_| Utc::now()),
+                    ended_at: row
+                        .get::<_, Option<String>>(3)?
+                        .and_then(|s| s.parse().ok()),
+                })
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+
+        Ok(sessions)
+    }
+
+    /// Get all tokens
+    pub fn get_all_tokens(&self) -> Result<Vec<Token>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, command_id, token_type, placeholder, original_value, created_at
+             FROM tokens
+             ORDER BY created_at DESC",
+        )?;
+
+        let tokens = stmt
+            .query_map([], |row| {
+                Ok(Token {
+                    id: row.get(0)?,
+                    command_id: CommandId::new(row.get(1)?),
+                    token_type: row.get(2)?,
+                    placeholder: row.get(3)?,
+                    original_value: row.get(4)?,
+                    created_at: row
+                        .get::<_, String>(5)?
+                        .parse()
+                        .unwrap_or_else(|_| Utc::now()),
+                })
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+
+        Ok(tokens)
+    }
+
+    /// Delete a host and cascade to sessions/commands/tokens
+    pub fn delete_host(&self, id: HostId) -> Result<()> {
+        self.conn
+            .execute("DELETE FROM hosts WHERE id = ?1", [id.as_i64()])?;
+        Ok(())
+    }
+
+    /// Delete a session and cascade to commands/tokens
+    pub fn delete_session(&self, id: &str) -> Result<()> {
+        self.conn
+            .execute("DELETE FROM sessions WHERE id = ?1", [id])?;
+        Ok(())
+    }
+
+    /// Delete a specific token
+    pub fn delete_token(&self, id: i64) -> Result<()> {
+        self.conn
+            .execute("DELETE FROM tokens WHERE id = ?1", [id])?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
