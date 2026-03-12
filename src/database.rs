@@ -522,11 +522,7 @@ impl Database {
     }
 
     /// Get commands excluding imported, with pagination (most recent first)
-    pub fn get_commands_paginated(
-        &self,
-        offset: usize,
-        limit: usize,
-    ) -> Result<Vec<CommandEntry>> {
+    pub fn get_commands_paginated(&self, offset: usize, limit: usize) -> Result<Vec<CommandEntry>> {
         let mut stmt = self.conn.prepare(
             "SELECT id, session_id, command, timestamp, directory, redacted, exit_code
              FROM commands
