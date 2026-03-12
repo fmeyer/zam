@@ -86,11 +86,16 @@ Backend selection logic (in `cli/mod.rs:114-138`):
   - `database.rs`: migrate, merge, tokens, hosts, sessions
   - `import_export.rs`: import/export functionality
   - `shell_integration.rs`: shell integration script generation
+  - `tui_handler.rs`: interactive TUI entity browser
+  - `manage.rs`: legacy interactive history browser
+  - `alias.rs`: alias management
 
 **Core Library** (`src/` root):
 - `history.rs`: File-based history manager (`HistoryManager`)
 - `history_db.rs`: Database-backed history manager (`HistoryManagerDb`)
 - `database.rs`: Low-level SQLite operations, schema, and queries
+- `tui.rs`: Interactive TUI with tabbed entity browser (Local, Top 50, History, Aliases, Hosts, Sessions, Tokens)
+- `manage_tui.rs`: Legacy interactive history browser
 - `redaction.rs`: Sensitive data detection and redaction engine
 - `search.rs`: Search functionality with fuzzy matching and regex
 - `config.rs`: Configuration loading and management
@@ -147,6 +152,23 @@ Configuration hierarchy:
 1. Explicit `--config` flag
 2. Default location (`~/.zam.json`)
 3. Built-in defaults (`Config::default()`)
+
+### Interactive TUI (`tui.rs`)
+
+The `zam tui` command provides a tabbed interface for browsing all database entities. Built with `ratatui` and `crossterm`.
+
+**Tabs**: Local (cwd commands), Top 50 (frequent commands), History (all commands, paginated), Aliases, Hosts, Sessions, Tokens
+
+**Key design details**:
+- Renders to `/dev/tty` directly so it works inside `$()` command substitution
+- Uses crossterm `use-dev-tty` feature for input when stdin is captured
+- Enter on Local/Frequent tabs returns the selected command string via `Option<String>`
+- Supports filtering (`/`), deletion (`d`), alias editing (`e`), and help overlay (`?`)
+
+**Shell integration** (`shell_integration.rs`):
+- Zsh: `precmd`/`preexec` hooks log only successful commands (exit code 0)
+- `Ctrl+R` bound to `zam-widget` which runs `zam tui`, sets `BUFFER`, and calls `zle accept-line`
+- Aliases loaded via `eval "$(zam alias list --shell)"`
 
 ### Search Engine
 

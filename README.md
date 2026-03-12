@@ -35,7 +35,8 @@ Or from crates.io:
     validate            Test redaction patterns
     shell <type>        Generate shell integration script
     fzf                 Output commands for fzf integration
-    manage              Interactive history browser (TUI)
+    tui                 Interactive entity browser (TUI)
+    manage              Interactive history browser (legacy TUI)
     merge <db-file>     Merge another database
     tokens              Manage stored redacted tokens
     hosts               List tracked hosts
@@ -59,10 +60,11 @@ Or from crates.io:
     zam search --fuzzy "dckr"
     zam recent --count 10
 
+    # Interactive TUI browser
+    zam tui
+
     # Shell integration (add to shell rc file)
-    zam shell zsh >> ~/.zshrc
-    zam shell bash >> ~/.bashrc
-    zam shell fish >> ~/.config/fish/config.fish
+    eval "$(zam shell zsh)"
 
     # Alias management
     zam alias add ll "ls -la" "long listing"
