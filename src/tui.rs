@@ -19,16 +19,18 @@ use std::fs::File;
 
 #[derive(Clone, Copy, PartialEq)]
 enum Tab {
-    Commands,
     Local,
+    Frequent,
+    Commands,
     Aliases,
     Hosts,
     Sessions,
     Tokens,
 }
 
-const TABS: [Tab; 6] = [
+const TABS: [Tab; 7] = [
     Tab::Local,
+    Tab::Frequent,
     Tab::Commands,
     Tab::Aliases,
     Tab::Hosts,
@@ -39,8 +41,9 @@ const TABS: [Tab; 6] = [
 impl Tab {
     fn title(self) -> &'static str {
         match self {
-            Tab::Commands => "History",
             Tab::Local => "Local",
+            Tab::Frequent => "Top 50",
+            Tab::Commands => "History",
             Tab::Aliases => "Aliases",
             Tab::Hosts => "Hosts",
             Tab::Sessions => "Sessions",
@@ -68,6 +71,11 @@ enum EditField {
     Description,
 }
 
+struct FrequentCommand {
+    command: String,
+    count: usize,
+}
+
 struct AppTUI<'a> {
     db: &'a Database,
     cwd: String,
@@ -77,6 +85,7 @@ struct AppTUI<'a> {
     // Data
     commands: Vec<CommandEntry>,
     local_commands: Vec<CommandEntry>,
+    frequent: Vec<FrequentCommand>,
     aliases: Vec<Alias>,
     hosts: Vec<Host>,
     sessions: Vec<Session>,
@@ -118,6 +127,7 @@ impl<'a> AppTUI<'a> {
             mode: Mode::Normal,
             commands: Vec::new(),
             local_commands: Vec::new(),
+            frequent: Vec::new(),
             aliases: Vec::new(),
             hosts: Vec::new(),
             sessions: Vec::new(),
@@ -154,6 +164,15 @@ impl<'a> AppTUI<'a> {
             Tab::Local => {
                 self.local_commands = self.db.get_commands_for_directory(&self.cwd)?;
                 self.row_count = self.local_commands.len();
+            }
+            Tab::Frequent => {
+                self.frequent = self
+                    .db
+                    .get_frequent_commands(50)?
+                    .into_iter()
+                    .map(|(command, count)| FrequentCommand { command, count })
+                    .collect();
+                self.row_count = self.frequent.len();
             }
             Tab::Aliases => {
                 self.aliases = self.db.list_aliases()?;
@@ -278,6 +297,7 @@ impl<'a> AppTUI<'a> {
                     return;
                 }
             }
+            Tab::Frequent => return,
         };
         self.confirm_msg = msg;
         self.mode = Mode::Confirm;
@@ -325,6 +345,7 @@ impl<'a> AppTUI<'a> {
                     self.status = Some("Token deleted".into());
                 }
             }
+            Tab::Frequent => {}
         }
         self.mode = Mode::Normal;
         self.load_tab()
@@ -484,30 +505,36 @@ impl<'a> AppTUI<'a> {
                     self.load_tab()?;
                 }
                 KeyCode::Char('2') => {
-                    self.tab = Tab::Commands;
+                    self.tab = Tab::Frequent;
                     self.filter.clear();
                     self.page = 0;
                     self.load_tab()?;
                 }
                 KeyCode::Char('3') => {
-                    self.tab = Tab::Aliases;
+                    self.tab = Tab::Commands;
                     self.filter.clear();
                     self.page = 0;
                     self.load_tab()?;
                 }
                 KeyCode::Char('4') => {
-                    self.tab = Tab::Hosts;
+                    self.tab = Tab::Aliases;
                     self.filter.clear();
                     self.page = 0;
                     self.load_tab()?;
                 }
                 KeyCode::Char('5') => {
-                    self.tab = Tab::Sessions;
+                    self.tab = Tab::Hosts;
                     self.filter.clear();
                     self.page = 0;
                     self.load_tab()?;
                 }
                 KeyCode::Char('6') => {
+                    self.tab = Tab::Sessions;
+                    self.filter.clear();
+                    self.page = 0;
+                    self.load_tab()?;
+                }
+                KeyCode::Char('7') => {
                     self.tab = Tab::Tokens;
                     self.filter.clear();
                     self.page = 0;
@@ -520,6 +547,14 @@ impl<'a> AppTUI<'a> {
                 KeyCode::Char('/') => {
                     self.filter.clear();
                     self.mode = Mode::Filter;
+                }
+                KeyCode::Enter if self.tab == Tab::Frequent => {
+                    if let Some(idx) = self.selected_index()
+                        && let Some(f) = self.frequent.get(idx)
+                    {
+                        self.selected_command = Some(f.command.clone());
+                        self.running = false;
+                    }
                 }
                 KeyCode::Enter if self.tab == Tab::Local => {
                     if let Some(idx) = self.selected_index()
@@ -596,8 +631,9 @@ impl<'a> AppTUI<'a> {
 
     fn render_table(&mut self, frame: &mut Frame, area: Rect) {
         match self.tab {
-            Tab::Commands => self.render_commands(frame, area),
             Tab::Local => self.render_local(frame, area),
+            Tab::Frequent => self.render_frequent(frame, area),
+            Tab::Commands => self.render_commands(frame, area),
             Tab::Aliases => self.render_aliases(frame, area),
             Tab::Hosts => self.render_hosts(frame, area),
             Tab::Sessions => self.render_sessions(frame, area),
@@ -610,6 +646,42 @@ impl<'a> AppTUI<'a> {
             return true;
         }
         text.to_lowercase().contains(&self.filter.to_lowercase())
+    }
+
+    fn render_frequent(&mut self, frame: &mut Frame, area: Rect) {
+        let header = Row::new(vec!["#", "Count", "Command"]).style(
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        );
+
+        let rows: Vec<Row> = self
+            .frequent
+            .iter()
+            .enumerate()
+            .filter(|(_, f)| self.matches_filter(&f.command))
+            .map(|(i, f)| {
+                Row::new(vec![
+                    Cell::from((i + 1).to_string()),
+                    Cell::from(f.count.to_string()),
+                    Cell::from(f.command.chars().take(80).collect::<String>()),
+                ])
+            })
+            .collect();
+
+        let table = Table::new(
+            rows,
+            [
+                Constraint::Length(4),
+                Constraint::Length(6),
+                Constraint::Min(20),
+            ],
+        )
+        .header(header)
+        .block(Block::default().borders(Borders::ALL).title("Top 50"))
+        .row_highlight_style(Style::default().bg(Color::DarkGray));
+
+        frame.render_stateful_widget(table, area, &mut self.table_state);
     }
 
     fn render_commands(&mut self, frame: &mut Frame, area: Rect) {
@@ -948,7 +1020,7 @@ impl<'a> AppTUI<'a> {
 Navigation
   j/↓  Move down          k/↑  Move up
   Tab  Next tab         S-Tab  Previous tab
-  1-6  Jump to tab
+  1-7  Jump to tab
   [/←  Previous page     ]/→  Next page (History)
 
 Actions
