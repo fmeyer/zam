@@ -30,6 +30,7 @@ pub mod manage_tui;
 pub mod prelude;
 pub mod redaction;
 pub mod search;
+pub mod tui;
 pub mod types;
 
 pub use config::Config;
