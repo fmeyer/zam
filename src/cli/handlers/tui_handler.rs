@@ -3,6 +3,7 @@
 use crate::cli::{CliApp, HistoryBackend};
 use crate::error::{Error, Result};
 use crate::tui;
+use std::env;
 
 pub fn handle_tui(app: &mut CliApp) -> Result<()> {
     let mgr = match &app.backend {
@@ -14,5 +15,12 @@ pub fn handle_tui(app: &mut CliApp) -> Result<()> {
         }
     };
 
-    tui::run_tui(&mgr.db)
+    let cwd = env::current_dir()
+        .map(|p| p.to_string_lossy().into_owned())
+        .unwrap_or_default();
+
+    if let Some(cmd) = tui::run_tui(&mgr.db, cwd)? {
+        println!("{cmd}");
+    }
+    Ok(())
 }

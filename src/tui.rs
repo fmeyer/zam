@@ -15,18 +15,20 @@ use ratatui::{
     text::{Line, Span},
     widgets::{Block, Borders, Cell, Paragraph, Row, Table, TableState, Tabs, Wrap},
 };
-use std::io;
+use std::fs::File;
 
 #[derive(Clone, Copy, PartialEq)]
 enum Tab {
     Commands,
+    Local,
     Aliases,
     Hosts,
     Sessions,
     Tokens,
 }
 
-const TABS: [Tab; 5] = [
+const TABS: [Tab; 6] = [
+    Tab::Local,
     Tab::Commands,
     Tab::Aliases,
     Tab::Hosts,
@@ -37,7 +39,8 @@ const TABS: [Tab; 5] = [
 impl Tab {
     fn title(self) -> &'static str {
         match self {
-            Tab::Commands => "Commands",
+            Tab::Commands => "History",
+            Tab::Local => "Local",
             Tab::Aliases => "Aliases",
             Tab::Hosts => "Hosts",
             Tab::Sessions => "Sessions",
@@ -67,11 +70,13 @@ enum EditField {
 
 struct AppTUI<'a> {
     db: &'a Database,
+    cwd: String,
     tab: Tab,
     mode: Mode,
 
     // Data
     commands: Vec<CommandEntry>,
+    local_commands: Vec<CommandEntry>,
     aliases: Vec<Alias>,
     hosts: Vec<Host>,
     sessions: Vec<Session>,
@@ -101,15 +106,18 @@ struct AppTUI<'a> {
     status: Option<String>,
     show_values: bool,
     running: bool,
+    selected_command: Option<String>,
 }
 
 impl<'a> AppTUI<'a> {
-    fn new(db: &'a Database) -> Result<Self> {
+    fn new(db: &'a Database, cwd: String) -> Result<Self> {
         let mut app = Self {
             db,
-            tab: Tab::Commands,
+            cwd,
+            tab: Tab::Local,
             mode: Mode::Normal,
             commands: Vec::new(),
+            local_commands: Vec::new(),
             aliases: Vec::new(),
             hosts: Vec::new(),
             sessions: Vec::new(),
@@ -127,6 +135,7 @@ impl<'a> AppTUI<'a> {
             status: None,
             show_values: false,
             running: true,
+            selected_command: None,
         };
         app.load_tab()?;
         Ok(app)
@@ -136,11 +145,15 @@ impl<'a> AppTUI<'a> {
         self.table_state = TableState::default();
         match self.tab {
             Tab::Commands => {
-                self.total_commands = self.db.count_commands()?;
+                self.total_commands = self.db.count_unique_commands()?;
                 self.commands = self
                     .db
-                    .get_commands_paginated(self.page * self.page_size, self.page_size)?;
+                    .get_unique_commands_paginated(self.page * self.page_size, self.page_size)?;
                 self.row_count = self.commands.len();
+            }
+            Tab::Local => {
+                self.local_commands = self.db.get_commands_for_directory(&self.cwd)?;
+                self.row_count = self.local_commands.len();
             }
             Tab::Aliases => {
                 self.aliases = self.db.list_aliases()?;
@@ -221,7 +234,15 @@ impl<'a> AppTUI<'a> {
             Tab::Commands => {
                 if let Some(cmd) = self.commands.get(idx) {
                     let preview: String = cmd.command.chars().take(40).collect();
-                    format!("Delete command \"{}\"?", preview)
+                    format!("Delete entry \"{}\"?", preview)
+                } else {
+                    return;
+                }
+            }
+            Tab::Local => {
+                if let Some(cmd) = self.local_commands.get(idx) {
+                    let preview: String = cmd.command.chars().take(40).collect();
+                    format!("Delete entry \"{}\"?", preview)
                 } else {
                     return;
                 }
@@ -271,7 +292,13 @@ impl<'a> AppTUI<'a> {
             Tab::Commands => {
                 if let Some(cmd) = self.commands.get(idx) {
                     self.db.delete_command(cmd.id)?;
-                    self.status = Some("Command deleted".into());
+                    self.status = Some("Entry deleted".into());
+                }
+            }
+            Tab::Local => {
+                if let Some(cmd) = self.local_commands.get(idx) {
+                    self.db.delete_command(cmd.id)?;
+                    self.status = Some("Entry deleted".into());
                 }
             }
             Tab::Aliases => {
@@ -451,30 +478,36 @@ impl<'a> AppTUI<'a> {
                 KeyCode::Tab => self.next_tab()?,
                 KeyCode::BackTab => self.prev_tab()?,
                 KeyCode::Char('1') => {
-                    self.tab = Tab::Commands;
+                    self.tab = Tab::Local;
                     self.filter.clear();
                     self.page = 0;
                     self.load_tab()?;
                 }
                 KeyCode::Char('2') => {
-                    self.tab = Tab::Aliases;
+                    self.tab = Tab::Commands;
                     self.filter.clear();
                     self.page = 0;
                     self.load_tab()?;
                 }
                 KeyCode::Char('3') => {
-                    self.tab = Tab::Hosts;
+                    self.tab = Tab::Aliases;
                     self.filter.clear();
                     self.page = 0;
                     self.load_tab()?;
                 }
                 KeyCode::Char('4') => {
-                    self.tab = Tab::Sessions;
+                    self.tab = Tab::Hosts;
                     self.filter.clear();
                     self.page = 0;
                     self.load_tab()?;
                 }
                 KeyCode::Char('5') => {
+                    self.tab = Tab::Sessions;
+                    self.filter.clear();
+                    self.page = 0;
+                    self.load_tab()?;
+                }
+                KeyCode::Char('6') => {
                     self.tab = Tab::Tokens;
                     self.filter.clear();
                     self.page = 0;
@@ -487,6 +520,14 @@ impl<'a> AppTUI<'a> {
                 KeyCode::Char('/') => {
                     self.filter.clear();
                     self.mode = Mode::Filter;
+                }
+                KeyCode::Enter if self.tab == Tab::Local => {
+                    if let Some(idx) = self.selected_index()
+                        && let Some(cmd) = self.local_commands.get(idx)
+                    {
+                        self.selected_command = Some(cmd.command.clone());
+                        self.running = false;
+                    }
                 }
                 KeyCode::Char('d') | KeyCode::Delete => self.request_delete(),
                 KeyCode::Char('e') if self.tab == Tab::Aliases => {
@@ -556,6 +597,7 @@ impl<'a> AppTUI<'a> {
     fn render_table(&mut self, frame: &mut Frame, area: Rect) {
         match self.tab {
             Tab::Commands => self.render_commands(frame, area),
+            Tab::Local => self.render_local(frame, area),
             Tab::Aliases => self.render_aliases(frame, area),
             Tab::Hosts => self.render_hosts(frame, area),
             Tab::Sessions => self.render_sessions(frame, area),
@@ -604,7 +646,7 @@ impl<'a> AppTUI<'a> {
             ],
         );
         let title = format!(
-            "Commands (page {}/{}, {} total)",
+            "History (page {}/{}, {} total)",
             self.page + 1,
             self.total_pages(),
             self.total_commands,
@@ -614,6 +656,45 @@ impl<'a> AppTUI<'a> {
             .header(header)
             .block(Block::default().borders(Borders::ALL).title(title))
             .row_highlight_style(Style::default().bg(Color::DarkGray));
+
+        frame.render_stateful_widget(table, area, &mut self.table_state);
+    }
+
+    fn render_local(&mut self, frame: &mut Frame, area: Rect) {
+        let header = Row::new(vec!["ID", "Timestamp", "Command", "R"]).style(
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        );
+
+        let rows: Vec<Row> = self
+            .local_commands
+            .iter()
+            .filter(|c| self.matches_filter(&c.command))
+            .map(|c| {
+                let r = if c.redacted { "Y" } else { "" };
+                Row::new(vec![
+                    Cell::from(c.id.to_string()),
+                    Cell::from(c.timestamp.format("%Y-%m-%d %H:%M").to_string()),
+                    Cell::from(c.command.chars().take(80).collect::<String>()),
+                    Cell::from(r),
+                ])
+            })
+            .collect();
+
+        let title = format!("Local — {}", self.cwd);
+        let table = Table::new(
+            rows,
+            [
+                Constraint::Length(6),
+                Constraint::Length(16),
+                Constraint::Min(20),
+                Constraint::Length(1),
+            ],
+        )
+        .header(header)
+        .block(Block::default().borders(Borders::ALL).title(title))
+        .row_highlight_style(Style::default().bg(Color::DarkGray));
 
         frame.render_stateful_widget(table, area, &mut self.table_state);
     }
@@ -867,8 +948,8 @@ impl<'a> AppTUI<'a> {
 Navigation
   j/↓  Move down          k/↑  Move up
   Tab  Next tab         S-Tab  Previous tab
-  1-5  Jump to tab
-  [/←  Previous page     ]/→  Next page (Commands)
+  1-6  Jump to tab
+  [/←  Previous page     ]/→  Next page (History)
 
 Actions
   /    Filter rows         d    Delete selected
@@ -921,15 +1002,16 @@ fn centered_rect(percent_x: u16, height: u16, area: Rect) -> Rect {
         .split(popup_layout[1])[1]
 }
 
-/// Run the interactive TUI for browsing database entities
-pub fn run_tui(db: &Database) -> Result<()> {
+/// Run the interactive TUI for browsing database entities.
+/// Returns the selected command string if the user pressed Enter on a Local entry.
+pub fn run_tui(db: &Database, cwd: String) -> Result<Option<String>> {
+    let mut tty = File::options().write(true).open("/dev/tty")?;
     enable_raw_mode()?;
-    let mut stdout = io::stdout();
-    execute!(stdout, EnterAlternateScreen)?;
-    let backend = CrosstermBackend::new(stdout);
+    execute!(tty, EnterAlternateScreen)?;
+    let backend = CrosstermBackend::new(tty);
     let mut terminal = Terminal::new(backend)?;
 
-    let mut app = AppTUI::new(db)?;
+    let mut app = AppTUI::new(db, cwd)?;
 
     let result = (|| -> Result<()> {
         while app.running {
@@ -948,5 +1030,6 @@ pub fn run_tui(db: &Database) -> Result<()> {
     execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
     terminal.show_cursor()?;
 
-    result
+    result?;
+    Ok(app.selected_command)
 }
