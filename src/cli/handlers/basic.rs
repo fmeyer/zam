@@ -38,7 +38,7 @@ pub fn handle_log(app: &mut CliApp, args: &LogArgs) -> Result<()> {
     }
 
     if !app.quiet {
-        app.verbose_println("Command loggeed successfully");
+        app.verbose_println("Command logged successfully");
     }
 
     Ok(())
