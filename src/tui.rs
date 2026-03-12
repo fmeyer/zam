@@ -206,32 +206,55 @@ impl<'a> AppTUI<'a> {
         }
         // Find the sel-th item that matches the filter
         let matching_indices: Vec<usize> = match self.tab {
-            Tab::Local => self.local_commands.iter().enumerate()
+            Tab::Local => self
+                .local_commands
+                .iter()
+                .enumerate()
                 .filter(|(_, c)| self.matches_filter(&c.command))
                 .map(|(i, _)| i)
                 .collect(),
-            Tab::Frequent => self.frequent.iter().enumerate()
+            Tab::Frequent => self
+                .frequent
+                .iter()
+                .enumerate()
                 .filter(|(_, f)| self.matches_filter(&f.command))
                 .map(|(i, _)| i)
                 .collect(),
-            Tab::Commands => self.commands.iter().enumerate()
+            Tab::Commands => self
+                .commands
+                .iter()
+                .enumerate()
                 .filter(|(_, c)| self.matches_filter(&c.command))
                 .map(|(i, _)| i)
                 .collect(),
-            Tab::Aliases => self.aliases.iter().enumerate()
+            Tab::Aliases => self
+                .aliases
+                .iter()
+                .enumerate()
                 .filter(|(_, a)| self.matches_filter(&a.alias) || self.matches_filter(&a.command))
                 .map(|(i, _)| i)
                 .collect(),
-            Tab::Hosts => self.hosts.iter().enumerate()
+            Tab::Hosts => self
+                .hosts
+                .iter()
+                .enumerate()
                 .filter(|(_, h)| self.matches_filter(&h.hostname))
                 .map(|(i, _)| i)
                 .collect(),
-            Tab::Sessions => self.sessions.iter().enumerate()
+            Tab::Sessions => self
+                .sessions
+                .iter()
+                .enumerate()
                 .filter(|(_, s)| self.matches_filter(s.id.as_ref()))
                 .map(|(i, _)| i)
                 .collect(),
-            Tab::Tokens => self.tokens.iter().enumerate()
-                .filter(|(_, t)| self.matches_filter(&t.token_type) || self.matches_filter(&t.placeholder))
+            Tab::Tokens => self
+                .tokens
+                .iter()
+                .enumerate()
+                .filter(|(_, t)| {
+                    self.matches_filter(&t.token_type) || self.matches_filter(&t.placeholder)
+                })
                 .map(|(i, _)| i)
                 .collect(),
         };
@@ -244,13 +267,43 @@ impl<'a> AppTUI<'a> {
             return self.row_count;
         }
         match self.tab {
-            Tab::Local => self.local_commands.iter().filter(|c| self.matches_filter(&c.command)).count(),
-            Tab::Frequent => self.frequent.iter().filter(|f| self.matches_filter(&f.command)).count(),
-            Tab::Commands => self.commands.iter().filter(|c| self.matches_filter(&c.command)).count(),
-            Tab::Aliases => self.aliases.iter().filter(|a| self.matches_filter(&a.alias) || self.matches_filter(&a.command)).count(),
-            Tab::Hosts => self.hosts.iter().filter(|h| self.matches_filter(&h.hostname)).count(),
-            Tab::Sessions => self.sessions.iter().filter(|s| self.matches_filter(s.id.as_ref())).count(),
-            Tab::Tokens => self.tokens.iter().filter(|t| self.matches_filter(&t.token_type) || self.matches_filter(&t.placeholder)).count(),
+            Tab::Local => self
+                .local_commands
+                .iter()
+                .filter(|c| self.matches_filter(&c.command))
+                .count(),
+            Tab::Frequent => self
+                .frequent
+                .iter()
+                .filter(|f| self.matches_filter(&f.command))
+                .count(),
+            Tab::Commands => self
+                .commands
+                .iter()
+                .filter(|c| self.matches_filter(&c.command))
+                .count(),
+            Tab::Aliases => self
+                .aliases
+                .iter()
+                .filter(|a| self.matches_filter(&a.alias) || self.matches_filter(&a.command))
+                .count(),
+            Tab::Hosts => self
+                .hosts
+                .iter()
+                .filter(|h| self.matches_filter(&h.hostname))
+                .count(),
+            Tab::Sessions => self
+                .sessions
+                .iter()
+                .filter(|s| self.matches_filter(s.id.as_ref()))
+                .count(),
+            Tab::Tokens => self
+                .tokens
+                .iter()
+                .filter(|t| {
+                    self.matches_filter(&t.token_type) || self.matches_filter(&t.placeholder)
+                })
+                .count(),
         }
     }
 
@@ -485,7 +538,10 @@ impl<'a> AppTUI<'a> {
 
     fn handle_key(&mut self, key: KeyEvent) -> Result<()> {
         // Global Ctrl shortcuts work in any mode except Confirm and EditAlias
-        if key.modifiers.contains(KeyModifiers::CONTROL) && self.mode != Mode::Confirm && self.mode != Mode::EditAlias {
+        if key.modifiers.contains(KeyModifiers::CONTROL)
+            && self.mode != Mode::Confirm
+            && self.mode != Mode::EditAlias
+        {
             match key.code {
                 KeyCode::Char('c') => {
                     self.running = false;
