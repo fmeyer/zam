@@ -521,6 +521,146 @@ impl Database {
         Ok(commands)
     }
 
+    /// Get commands excluding imported, with pagination (most recent first)
+    pub fn get_commands_paginated(&self, offset: usize, limit: usize) -> Result<Vec<CommandEntry>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, session_id, command, timestamp, directory, redacted, exit_code
+             FROM commands
+             WHERE directory != '<imported>'
+             ORDER BY timestamp DESC
+             LIMIT ?1 OFFSET ?2",
+        )?;
+
+        let commands = stmt
+            .query_map(rusqlite::params![limit as i64, offset as i64], |row| {
+                Ok(CommandEntry {
+                    id: row.get(0)?,
+                    session_id: row.get(1)?,
+                    command: row.get(2)?,
+                    timestamp: row
+                        .get::<_, String>(3)?
+                        .parse()
+                        .unwrap_or_else(|_| Utc::now()),
+                    directory: row.get(4)?,
+                    redacted: row.get::<_, i32>(5)? != 0,
+                    exit_code: row.get(6)?,
+                })
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+
+        Ok(commands)
+    }
+
+    /// Get unique commands per directory, paginated (most recent first).
+    /// Groups by (command, directory), keeping the latest timestamp and highest id.
+    pub fn get_unique_commands_paginated(
+        &self,
+        offset: usize,
+        limit: usize,
+    ) -> Result<Vec<CommandEntry>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT MAX(id), session_id, command, MAX(timestamp) as ts, directory, redacted, exit_code
+             FROM commands
+             WHERE directory != '<imported>'
+             GROUP BY command, directory
+             ORDER BY ts DESC
+             LIMIT ?1 OFFSET ?2",
+        )?;
+
+        let commands = stmt
+            .query_map(rusqlite::params![limit as i64, offset as i64], |row| {
+                Ok(CommandEntry {
+                    id: row.get(0)?,
+                    session_id: row.get(1)?,
+                    command: row.get(2)?,
+                    timestamp: row
+                        .get::<_, String>(3)?
+                        .parse()
+                        .unwrap_or_else(|_| Utc::now()),
+                    directory: row.get(4)?,
+                    redacted: row.get::<_, i32>(5)? != 0,
+                    exit_code: row.get(6)?,
+                })
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+
+        Ok(commands)
+    }
+
+    /// Count unique (command, directory) pairs excluding imported
+    pub fn count_unique_commands(&self) -> Result<usize> {
+        let count: i64 = self.conn.query_row(
+            "SELECT COUNT(*) FROM (
+                SELECT 1 FROM commands
+                WHERE directory != '<imported>'
+                GROUP BY command, directory
+            )",
+            [],
+            |row| row.get(0),
+        )?;
+        Ok(count as usize)
+    }
+
+    /// Get unique commands for a specific directory (no duplicates, most recent first)
+    pub fn get_commands_for_directory(&self, directory: &str) -> Result<Vec<CommandEntry>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT MAX(id), session_id, command, MAX(timestamp) as ts, directory, redacted, exit_code
+             FROM commands
+             WHERE directory = ?1
+             GROUP BY command
+             ORDER BY ts DESC",
+        )?;
+
+        let commands = stmt
+            .query_map(rusqlite::params![directory], |row| {
+                Ok(CommandEntry {
+                    id: row.get(0)?,
+                    session_id: row.get(1)?,
+                    command: row.get(2)?,
+                    timestamp: row
+                        .get::<_, String>(3)?
+                        .parse()
+                        .unwrap_or_else(|_| Utc::now()),
+                    directory: row.get(4)?,
+                    redacted: row.get::<_, i32>(5)? != 0,
+                    exit_code: row.get(6)?,
+                })
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+
+        Ok(commands)
+    }
+
+    /// Get the most frequently used unique commands globally
+    pub fn get_frequent_commands(&self, limit: usize) -> Result<Vec<(String, usize)>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT command, COUNT(*) as cnt
+             FROM commands
+             WHERE directory != '<imported>'
+             GROUP BY command
+             ORDER BY cnt DESC
+             LIMIT ?1",
+        )?;
+
+        let results = stmt
+            .query_map(rusqlite::params![limit as i64], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)? as usize))
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+
+        Ok(results)
+    }
+
+    /// Count non-imported commands
+    pub fn count_commands(&self) -> Result<usize> {
+        let count: i64 = self.conn.query_row(
+            "SELECT COUNT(*) FROM commands WHERE directory != '<imported>'",
+            [],
+            |row| row.get(0),
+        )?;
+        Ok(count as usize)
+    }
+
     /// Get database statistics
     pub fn get_stats(&self) -> Result<DatabaseStats> {
         let total_commands: i64 =
@@ -807,6 +947,81 @@ impl Database {
     pub fn delete_command(&self, id: CommandId) -> Result<()> {
         self.conn
             .execute("DELETE FROM commands WHERE id = ?1", [id.0])?;
+        Ok(())
+    }
+
+    /// Get all sessions across all hosts
+    pub fn get_all_sessions(&self) -> Result<Vec<Session>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, host_id, started_at, ended_at
+             FROM sessions
+             ORDER BY started_at DESC",
+        )?;
+
+        let sessions = stmt
+            .query_map([], |row| {
+                Ok(Session {
+                    id: SessionId::new(row.get(0)?),
+                    host_id: HostId::new(row.get(1)?),
+                    started_at: row
+                        .get::<_, String>(2)?
+                        .parse()
+                        .unwrap_or_else(|_| Utc::now()),
+                    ended_at: row
+                        .get::<_, Option<String>>(3)?
+                        .and_then(|s| s.parse().ok()),
+                })
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+
+        Ok(sessions)
+    }
+
+    /// Get all tokens
+    pub fn get_all_tokens(&self) -> Result<Vec<Token>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, command_id, token_type, placeholder, original_value, created_at
+             FROM tokens
+             ORDER BY created_at DESC",
+        )?;
+
+        let tokens = stmt
+            .query_map([], |row| {
+                Ok(Token {
+                    id: row.get(0)?,
+                    command_id: CommandId::new(row.get(1)?),
+                    token_type: row.get(2)?,
+                    placeholder: row.get(3)?,
+                    original_value: row.get(4)?,
+                    created_at: row
+                        .get::<_, String>(5)?
+                        .parse()
+                        .unwrap_or_else(|_| Utc::now()),
+                })
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+
+        Ok(tokens)
+    }
+
+    /// Delete a host and cascade to sessions/commands/tokens
+    pub fn delete_host(&self, id: HostId) -> Result<()> {
+        self.conn
+            .execute("DELETE FROM hosts WHERE id = ?1", [id.as_i64()])?;
+        Ok(())
+    }
+
+    /// Delete a session and cascade to commands/tokens
+    pub fn delete_session(&self, id: &str) -> Result<()> {
+        self.conn
+            .execute("DELETE FROM sessions WHERE id = ?1", [id])?;
+        Ok(())
+    }
+
+    /// Delete a specific token
+    pub fn delete_token(&self, id: i64) -> Result<()> {
+        self.conn
+            .execute("DELETE FROM tokens WHERE id = ?1", [id])?;
         Ok(())
     }
 }

@@ -26,10 +26,10 @@ pub mod database;
 pub mod error;
 pub mod history;
 pub mod history_db;
-pub mod manage_tui;
 pub mod prelude;
 pub mod redaction;
 pub mod search;
+pub mod tui;
 pub mod types;
 
 pub use config::Config;

@@ -27,28 +27,34 @@ fn generate_zsh_integration() -> String {
     r#"# Zam Zsh Integration
 # Add this to your ~/.zshrc
 
-# Custom history manager function
-log_command() {
-    zam log "$1"
+# Log only successful commands
+_zam_last_cmd=""
+_zam_preexec() { _zam_last_cmd="$1"; }
+_zam_precmd() {
+    local rc=$?
+    if [[ $rc -eq 0 && -n "$_zam_last_cmd" ]]; then
+        zam log "$_zam_last_cmd"
+    fi
+    _zam_last_cmd=""
 }
-
-# Hook to log commands before execution
 autoload -Uz add-zsh-hook
-add-zsh-hook preexec log_command
+add-zsh-hook preexec _zam_preexec
+add-zsh-hook precmd _zam_precmd
 
-# Interactive history search with fzf (Ctrl+R)
-zam-fzf-widget() {
-    BUFFER=$(zam fzf | fzf --height 50% --reverse --tac 2>/dev/tty)
-    CURSOR=$#BUFFER
+# Interactive TUI history browser (Ctrl+R)
+zam-widget() {
+    local cmd="$(zam tui)"
+    if [[ -n "$cmd" ]]; then
+        BUFFER="$cmd"
+        zle accept-line
+    fi
     zle reset-prompt
 }
-zle -N zam-fzf-widget
+zle -N zam-widget
+bindkey '^R' zam-widget
 
-# Replace default Ctrl-R with fzf search
-bindkey '^R' zam-fzf-widget
-
-# Sync current shell aliases to zam on startup
-alias | zam alias sync &>/dev/null &
+# Load zam aliases into shell
+eval "$(zam alias list --shell 2>/dev/null)"
 "#
     .to_string()
 }
@@ -68,8 +74,8 @@ PROMPT_COMMAND="log_command \"\$BASH_COMMAND\"; $PROMPT_COMMAND"
 # Interactive history search with fzf (Ctrl+R)
 bind -x '"\C-r": "READLINE_LINE=$(zam fzf | fzf --height 50% --reverse --tac 2>/dev/tty); READLINE_POINT=${#READLINE_LINE}"'
 
-# Sync current shell aliases to zam on startup
-alias | zam alias sync &>/dev/null &
+# Load zam aliases into shell
+eval "$(zam alias list --shell 2>/dev/null)"
 "#
     .to_string()
 }
@@ -95,8 +101,8 @@ end
 # Replace default Ctrl-R with fzf search
 bind \cr zam_fzf_search
 
-# Sync current shell aliases to zam on startup
-alias | zam alias sync &>/dev/null &
+# Load zam aliases into shell
+eval (zam alias list --shell 2>/dev/null)
 "#
     .to_string()
 }

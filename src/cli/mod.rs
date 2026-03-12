@@ -74,8 +74,6 @@ pub enum Commands {
     Recent(RecentArgs),
     /// Show frequent commands
     Frequent(FrequentArgs),
-    /// Interactive history management (browse/delete)
-    Manage,
     /// Validate redaction patterns
     Validate(ValidateArgs),
     /// Show backend status and configuration
@@ -90,6 +88,8 @@ pub enum Commands {
     Sessions(SessionsArgs),
     /// Manage shell aliases
     Alias(AliasArgs),
+    /// Interactive entity browser (database only)
+    Tui,
 }
 
 /// History backend type
@@ -173,7 +173,6 @@ impl CliApp {
             Commands::Shell(args) => handle_shell(self, args),
             Commands::Recent(args) => handle_recent(self, args),
             Commands::Frequent(args) => handle_frequent(self, args),
-            Commands::Manage => handle_manage(self),
             Commands::Validate(args) => handle_validate(self, args),
             Commands::Status => handle_status(self),
             Commands::Merge(args) => handle_merge(self, args),
@@ -181,6 +180,7 @@ impl CliApp {
             Commands::Hosts(args) => handle_hosts(self, args),
             Commands::Sessions(args) => handle_sessions(self, args),
             Commands::Alias(args) => handle_alias(self, args),
+            Commands::Tui => handle_tui(self),
         }
     }
 
