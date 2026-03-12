@@ -357,17 +357,22 @@ impl<'a> AppTUI<'a> {
         }
         match self.edit_field {
             EditField::Command => {
-                self.db
-                    .update_alias(&self.edit_alias_name, &value, None)?;
+                self.db.update_alias(&self.edit_alias_name, &value, None)?;
                 self.status = Some(format!("Alias '{}' command updated", self.edit_alias_name));
             }
             EditField::Description => {
                 // Fetch current command to preserve it
-                if let Some(a) = self.aliases.iter().find(|a| a.alias == self.edit_alias_name) {
+                if let Some(a) = self
+                    .aliases
+                    .iter()
+                    .find(|a| a.alias == self.edit_alias_name)
+                {
                     self.db
                         .update_alias(&self.edit_alias_name, &a.command, Some(&value))?;
-                    self.status =
-                        Some(format!("Alias '{}' description updated", self.edit_alias_name));
+                    self.status = Some(format!(
+                        "Alias '{}' description updated",
+                        self.edit_alias_name
+                    ));
                 }
             }
         }
@@ -504,7 +509,7 @@ impl<'a> AppTUI<'a> {
             .direction(Direction::Vertical)
             .constraints([
                 Constraint::Length(3), // Tab bar
-                Constraint::Min(5),   // Table
+                Constraint::Min(5),    // Table
                 Constraint::Length(1), // Status
             ])
             .split(frame.area());
@@ -562,13 +567,15 @@ impl<'a> AppTUI<'a> {
         if self.filter.is_empty() {
             return true;
         }
-        text.to_lowercase()
-            .contains(&self.filter.to_lowercase())
+        text.to_lowercase().contains(&self.filter.to_lowercase())
     }
 
     fn render_commands(&mut self, frame: &mut Frame, area: Rect) {
-        let header = Row::new(vec!["ID", "Timestamp", "Command", "Directory", "R"])
-            .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
+        let header = Row::new(vec!["ID", "Timestamp", "Command", "Directory", "R"]).style(
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        );
 
         let rows: Vec<Row> = self
             .commands
@@ -612,8 +619,11 @@ impl<'a> AppTUI<'a> {
     }
 
     fn render_aliases(&mut self, frame: &mut Frame, area: Rect) {
-        let header = Row::new(vec!["Alias", "Command", "Description", "Updated"])
-            .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
+        let header = Row::new(vec!["Alias", "Command", "Description", "Updated"]).style(
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        );
 
         let rows: Vec<Row> = self
             .aliases
@@ -646,8 +656,11 @@ impl<'a> AppTUI<'a> {
     }
 
     fn render_hosts(&mut self, frame: &mut Frame, area: Rect) {
-        let header = Row::new(vec!["ID", "Hostname", "Created"])
-            .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
+        let header = Row::new(vec!["ID", "Hostname", "Created"]).style(
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        );
 
         let rows: Vec<Row> = self
             .hosts
@@ -678,8 +691,11 @@ impl<'a> AppTUI<'a> {
     }
 
     fn render_sessions(&mut self, frame: &mut Frame, area: Rect) {
-        let header = Row::new(vec!["ID", "Host", "Started", "Ended"])
-            .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
+        let header = Row::new(vec!["ID", "Host", "Started", "Ended"]).style(
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        );
 
         let rows: Vec<Row> = self
             .sessions
@@ -721,8 +737,11 @@ impl<'a> AppTUI<'a> {
         } else {
             "Tokens (v=show values)"
         };
-        let header = Row::new(vec!["ID", "Cmd", "Type", "Placeholder", "Value", "Created"])
-            .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
+        let header = Row::new(vec!["ID", "Cmd", "Type", "Placeholder", "Value", "Created"]).style(
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        );
 
         let rows: Vec<Row> = self
             .tokens
@@ -825,7 +844,10 @@ impl<'a> AppTUI<'a> {
             EditField::Description => "Description",
         };
         let title = format!("Edit Alias '{}' — {}", self.edit_alias_name, field_name);
-        let text = format!("{}_\n\nTab=switch field  Enter=save  Esc=cancel", self.edit_buf);
+        let text = format!(
+            "{}_\n\nTab=switch field  Enter=save  Esc=cancel",
+            self.edit_buf
+        );
         let popup = Paragraph::new(text)
             .block(
                 Block::default()
