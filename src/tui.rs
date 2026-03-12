@@ -58,7 +58,6 @@ impl Tab {
 
 #[derive(Clone, Copy, PartialEq)]
 enum Mode {
-    Normal,
     Filter,
     Confirm,
     EditAlias,
@@ -124,7 +123,7 @@ impl<'a> AppTUI<'a> {
             db,
             cwd,
             tab: Tab::Local,
-            mode: Mode::Normal,
+            mode: Mode::Filter,
             commands: Vec::new(),
             local_commands: Vec::new(),
             frequent: Vec::new(),
@@ -197,12 +196,67 @@ impl<'a> AppTUI<'a> {
         Ok(())
     }
 
-    fn selected_index(&self) -> Option<usize> {
-        self.table_state.selected()
+    /// Map the selected table row back to the original data index,
+    /// accounting for filter. The table only shows filtered rows, so
+    /// row N in the table corresponds to the Nth matching item.
+    fn resolve_selected(&self) -> Option<usize> {
+        let sel = self.table_state.selected()?;
+        if self.filter.is_empty() {
+            return Some(sel);
+        }
+        // Find the sel-th item that matches the filter
+        let matching_indices: Vec<usize> = match self.tab {
+            Tab::Local => self.local_commands.iter().enumerate()
+                .filter(|(_, c)| self.matches_filter(&c.command))
+                .map(|(i, _)| i)
+                .collect(),
+            Tab::Frequent => self.frequent.iter().enumerate()
+                .filter(|(_, f)| self.matches_filter(&f.command))
+                .map(|(i, _)| i)
+                .collect(),
+            Tab::Commands => self.commands.iter().enumerate()
+                .filter(|(_, c)| self.matches_filter(&c.command))
+                .map(|(i, _)| i)
+                .collect(),
+            Tab::Aliases => self.aliases.iter().enumerate()
+                .filter(|(_, a)| self.matches_filter(&a.alias) || self.matches_filter(&a.command))
+                .map(|(i, _)| i)
+                .collect(),
+            Tab::Hosts => self.hosts.iter().enumerate()
+                .filter(|(_, h)| self.matches_filter(&h.hostname))
+                .map(|(i, _)| i)
+                .collect(),
+            Tab::Sessions => self.sessions.iter().enumerate()
+                .filter(|(_, s)| self.matches_filter(s.id.as_ref()))
+                .map(|(i, _)| i)
+                .collect(),
+            Tab::Tokens => self.tokens.iter().enumerate()
+                .filter(|(_, t)| self.matches_filter(&t.token_type) || self.matches_filter(&t.placeholder))
+                .map(|(i, _)| i)
+                .collect(),
+        };
+        matching_indices.get(sel).copied()
+    }
+
+    /// Count of rows currently visible (after filtering).
+    fn filtered_row_count(&self) -> usize {
+        if self.filter.is_empty() {
+            return self.row_count;
+        }
+        match self.tab {
+            Tab::Local => self.local_commands.iter().filter(|c| self.matches_filter(&c.command)).count(),
+            Tab::Frequent => self.frequent.iter().filter(|f| self.matches_filter(&f.command)).count(),
+            Tab::Commands => self.commands.iter().filter(|c| self.matches_filter(&c.command)).count(),
+            Tab::Aliases => self.aliases.iter().filter(|a| self.matches_filter(&a.alias) || self.matches_filter(&a.command)).count(),
+            Tab::Hosts => self.hosts.iter().filter(|h| self.matches_filter(&h.hostname)).count(),
+            Tab::Sessions => self.sessions.iter().filter(|s| self.matches_filter(s.id.as_ref())).count(),
+            Tab::Tokens => self.tokens.iter().filter(|t| self.matches_filter(&t.token_type) || self.matches_filter(&t.placeholder)).count(),
+        }
     }
 
     fn select_prev(&mut self) {
-        if self.row_count == 0 {
+        let count = self.filtered_row_count();
+        if count == 0 {
             return;
         }
         let i = self
@@ -214,13 +268,14 @@ impl<'a> AppTUI<'a> {
     }
 
     fn select_next(&mut self) {
-        if self.row_count == 0 {
+        let count = self.filtered_row_count();
+        if count == 0 {
             return;
         }
         let i = self
             .table_state
             .selected()
-            .map(|s| (s + 1).min(self.row_count - 1))
+            .map(|s| (s + 1).min(count - 1))
             .unwrap_or(0);
         self.table_state.select(Some(i));
     }
@@ -246,7 +301,7 @@ impl<'a> AppTUI<'a> {
     }
 
     fn request_delete(&mut self) {
-        let Some(idx) = self.selected_index() else {
+        let Some(idx) = self.resolve_selected() else {
             return;
         };
         let msg = match self.tab {
@@ -304,8 +359,8 @@ impl<'a> AppTUI<'a> {
     }
 
     fn confirm_delete(&mut self) -> Result<()> {
-        let Some(idx) = self.selected_index() else {
-            self.mode = Mode::Normal;
+        let Some(idx) = self.resolve_selected() else {
+            self.mode = Mode::Filter;
             return Ok(());
         };
         match self.tab {
@@ -347,7 +402,7 @@ impl<'a> AppTUI<'a> {
             }
             Tab::Frequent => {}
         }
-        self.mode = Mode::Normal;
+        self.mode = Mode::Filter;
         self.load_tab()
     }
 
@@ -385,7 +440,7 @@ impl<'a> AppTUI<'a> {
         if self.tab != Tab::Aliases {
             return;
         }
-        let Some(idx) = self.selected_index() else {
+        let Some(idx) = self.resolve_selected() else {
             return;
         };
         let Some(a) = self.aliases.get(idx) else {
@@ -400,7 +455,7 @@ impl<'a> AppTUI<'a> {
     fn commit_edit_alias(&mut self) -> Result<()> {
         let value = self.edit_buf.trim().to_string();
         if value.is_empty() {
-            self.mode = Mode::Normal;
+            self.mode = Mode::Filter;
             return Ok(());
         }
         match self.edit_field {
@@ -424,22 +479,49 @@ impl<'a> AppTUI<'a> {
                 }
             }
         }
-        self.mode = Mode::Normal;
+        self.mode = Mode::Filter;
         self.load_tab()
     }
 
     fn handle_key(&mut self, key: KeyEvent) -> Result<()> {
+        // Global Ctrl shortcuts work in any mode except Confirm and EditAlias
+        if key.modifiers.contains(KeyModifiers::CONTROL) && self.mode != Mode::Confirm && self.mode != Mode::EditAlias {
+            match key.code {
+                KeyCode::Char('c') => {
+                    self.running = false;
+                    return Ok(());
+                }
+                KeyCode::Char('d') => {
+                    self.request_delete();
+                    return Ok(());
+                }
+                KeyCode::Char('e') if self.tab == Tab::Aliases => {
+                    self.start_edit_alias();
+                    return Ok(());
+                }
+                KeyCode::Char('v') if self.tab == Tab::Tokens => {
+                    self.show_values = !self.show_values;
+                    return Ok(());
+                }
+                KeyCode::Char('h') => {
+                    self.mode = Mode::Help;
+                    return Ok(());
+                }
+                _ => {}
+            }
+        }
+
         match self.mode {
             Mode::Help => {
-                self.mode = Mode::Normal;
+                self.mode = Mode::Filter;
             }
             Mode::Confirm => match key.code {
                 KeyCode::Char('y') | KeyCode::Char('Y') => self.confirm_delete()?,
-                _ => self.mode = Mode::Normal,
+                _ => self.mode = Mode::Filter,
             },
             Mode::EditAlias => match key.code {
                 KeyCode::Esc => {
-                    self.mode = Mode::Normal;
+                    self.mode = Mode::Filter;
                 }
                 KeyCode::Enter => {
                     self.commit_edit_alias()?;
@@ -451,7 +533,7 @@ impl<'a> AppTUI<'a> {
                         .iter()
                         .find(|a| a.alias == self.edit_alias_name)
                     else {
-                        self.mode = Mode::Normal;
+                        self.mode = Mode::Filter;
                         return Ok(());
                     };
                     match self.edit_field {
@@ -475,81 +557,15 @@ impl<'a> AppTUI<'a> {
             },
             Mode::Filter => match key.code {
                 KeyCode::Esc => {
-                    self.filter.clear();
-                    self.mode = Mode::Normal;
-                }
-                KeyCode::Enter => {
-                    self.mode = Mode::Normal;
-                }
-                KeyCode::Backspace => {
-                    self.filter.pop();
-                }
-                KeyCode::Char(c) => {
-                    self.filter.push(c);
-                }
-                _ => {}
-            },
-            Mode::Normal => match key.code {
-                KeyCode::Char('q') | KeyCode::Esc => {
-                    self.running = false;
-                }
-                KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                    self.running = false;
-                }
-                KeyCode::Tab => self.next_tab()?,
-                KeyCode::BackTab => self.prev_tab()?,
-                KeyCode::Char('1') => {
-                    self.tab = Tab::Local;
-                    self.filter.clear();
-                    self.page = 0;
-                    self.load_tab()?;
-                }
-                KeyCode::Char('2') => {
-                    self.tab = Tab::Frequent;
-                    self.filter.clear();
-                    self.page = 0;
-                    self.load_tab()?;
-                }
-                KeyCode::Char('3') => {
-                    self.tab = Tab::Commands;
-                    self.filter.clear();
-                    self.page = 0;
-                    self.load_tab()?;
-                }
-                KeyCode::Char('4') => {
-                    self.tab = Tab::Aliases;
-                    self.filter.clear();
-                    self.page = 0;
-                    self.load_tab()?;
-                }
-                KeyCode::Char('5') => {
-                    self.tab = Tab::Hosts;
-                    self.filter.clear();
-                    self.page = 0;
-                    self.load_tab()?;
-                }
-                KeyCode::Char('6') => {
-                    self.tab = Tab::Sessions;
-                    self.filter.clear();
-                    self.page = 0;
-                    self.load_tab()?;
-                }
-                KeyCode::Char('7') => {
-                    self.tab = Tab::Tokens;
-                    self.filter.clear();
-                    self.page = 0;
-                    self.load_tab()?;
-                }
-                KeyCode::Up | KeyCode::Char('k') => self.select_prev(),
-                KeyCode::Down | KeyCode::Char('j') => self.select_next(),
-                KeyCode::Right | KeyCode::Char(']') => self.next_page()?,
-                KeyCode::Left | KeyCode::Char('[') => self.prev_page()?,
-                KeyCode::Char('/') => {
-                    self.filter.clear();
-                    self.mode = Mode::Filter;
+                    if self.filter.is_empty() {
+                        self.running = false;
+                    } else {
+                        self.filter.clear();
+                        self.table_state.select(Some(0));
+                    }
                 }
                 KeyCode::Enter if self.tab == Tab::Frequent => {
-                    if let Some(idx) = self.selected_index()
+                    if let Some(idx) = self.resolve_selected()
                         && let Some(f) = self.frequent.get(idx)
                     {
                         self.selected_command = Some(f.command.clone());
@@ -557,22 +573,28 @@ impl<'a> AppTUI<'a> {
                     }
                 }
                 KeyCode::Enter if self.tab == Tab::Local => {
-                    if let Some(idx) = self.selected_index()
+                    if let Some(idx) = self.resolve_selected()
                         && let Some(cmd) = self.local_commands.get(idx)
                     {
                         self.selected_command = Some(cmd.command.clone());
                         self.running = false;
                     }
                 }
-                KeyCode::Char('d') | KeyCode::Delete => self.request_delete(),
-                KeyCode::Char('e') if self.tab == Tab::Aliases => {
-                    self.start_edit_alias();
+                KeyCode::Enter => {}
+                KeyCode::Backspace => {
+                    self.filter.pop();
+                    self.table_state.select(Some(0));
                 }
-                KeyCode::Char('v') if self.tab == Tab::Tokens => {
-                    self.show_values = !self.show_values;
-                }
-                KeyCode::Char('?') => {
-                    self.mode = Mode::Help;
+                KeyCode::Up => self.select_prev(),
+                KeyCode::Down => self.select_next(),
+                KeyCode::Left => self.prev_page()?,
+                KeyCode::Right => self.next_page()?,
+                KeyCode::Tab => self.next_tab()?,
+                KeyCode::BackTab => self.prev_tab()?,
+                KeyCode::Delete => self.request_delete(),
+                KeyCode::Char(c) => {
+                    self.filter.push(c);
+                    self.table_state.select(Some(0));
                 }
                 _ => {}
             },
@@ -886,9 +908,9 @@ impl<'a> AppTUI<'a> {
 
     fn render_tokens(&mut self, frame: &mut Frame, area: Rect) {
         let title = if self.show_values {
-            "Tokens (v=hide values)"
+            "Tokens (^V=hide values)"
         } else {
-            "Tokens (v=show values)"
+            "Tokens (^V=show values)"
         };
         let header = Row::new(vec!["ID", "Cmd", "Type", "Placeholder", "Value", "Created"]).style(
             Style::default()
@@ -937,7 +959,25 @@ impl<'a> AppTUI<'a> {
 
     fn render_status(&self, frame: &mut Frame, area: Rect) {
         let text = match self.mode {
-            Mode::Filter => format!(" /{}_ | Esc=cancel Enter=done", self.filter),
+            Mode::Filter => {
+                let extra = match self.tab {
+                    Tab::Aliases => " ^E=edit",
+                    Tab::Tokens => " ^V=reveal",
+                    Tab::Commands => " ←/→=page",
+                    _ => "",
+                };
+                if self.filter.is_empty() {
+                    format!(
+                        " type to search | Esc=quit Tab=switch ^D=delete{} ^H=help",
+                        extra
+                    )
+                } else {
+                    format!(
+                        " > {}_ | Esc=clear ↑↓=nav Enter=select ^D=delete{}",
+                        self.filter, extra
+                    )
+                }
+            }
             Mode::Confirm | Mode::Help => String::new(),
             Mode::EditAlias => {
                 let field = match self.edit_field {
@@ -949,23 +989,11 @@ impl<'a> AppTUI<'a> {
                     self.edit_alias_name, field
                 )
             }
-            Mode::Normal => {
-                let extra = match self.tab {
-                    Tab::Aliases => " e=edit",
-                    Tab::Tokens => " v=reveal",
-                    Tab::Commands => " [/]=page",
-                    _ => "",
-                };
-                if let Some(ref msg) = self.status {
-                    format!(" {} | q=quit Tab=switch /=filter d=delete{}", msg, extra)
-                } else {
-                    format!(" q=quit Tab=switch /=filter d=delete{} ?=help", extra)
-                }
-            }
         };
 
         let style = match self.mode {
-            Mode::Filter | Mode::EditAlias => Style::default().fg(Color::Yellow),
+            Mode::Filter if !self.filter.is_empty() => Style::default().fg(Color::Yellow),
+            Mode::EditAlias => Style::default().fg(Color::Yellow),
             _ => Style::default().fg(Color::DarkGray),
         };
 
@@ -1017,20 +1045,19 @@ impl<'a> AppTUI<'a> {
     fn render_help(&self, frame: &mut Frame, area: Rect) {
         let block_area = centered_rect(60, 16, area);
         let help_text = "\
+Search
+  Just type to filter    Esc  Clear filter / Quit
+  Enter  Select command (Local/Top 50 tabs)
+
 Navigation
-  j/↓  Move down          k/↑  Move up
-  Tab  Next tab         S-Tab  Previous tab
-  1-7  Jump to tab
-  [/←  Previous page     ]/→  Next page (History)
+  ↑/↓   Move up/down     Tab/S-Tab  Switch tabs
+  ←/→   Previous/Next page (History tab)
 
-Actions
-  /    Filter rows         d    Delete selected
-  e    Edit alias (Aliases tab only)
-  v    Toggle token values (Tokens tab only)
-
-General
-  q    Quit              Esc    Cancel / Quit
-  ?    This help
+Actions (Ctrl shortcuts)
+  ^D    Delete selected
+  ^E    Edit alias (Aliases tab)
+  ^V    Toggle token values (Tokens tab)
+  ^H    This help       ^C     Quit
 
 Press any key to close";
         let popup = Paragraph::new(help_text)
