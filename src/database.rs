@@ -631,6 +631,26 @@ impl Database {
         Ok(commands)
     }
 
+    /// Get the most frequently used unique commands globally
+    pub fn get_frequent_commands(&self, limit: usize) -> Result<Vec<(String, usize)>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT command, COUNT(*) as cnt
+             FROM commands
+             WHERE directory != '<imported>'
+             GROUP BY command
+             ORDER BY cnt DESC
+             LIMIT ?1",
+        )?;
+
+        let results = stmt
+            .query_map(rusqlite::params![limit as i64], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)? as usize))
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+
+        Ok(results)
+    }
+
     /// Count non-imported commands
     pub fn count_commands(&self) -> Result<usize> {
         let count: i64 = self.conn.query_row(
