@@ -823,16 +823,10 @@ impl<'a> AppTUI<'a> {
             })
             .collect();
 
-        let table = Table::new(
-            rows,
-            [
-                Constraint::Min(20),
-                Constraint::Length(16),
-            ],
-        )
-        .header(header)
-        .block(Block::default().borders(Borders::ALL).title("Hosts"))
-        .row_highlight_style(Style::default().bg(Color::DarkGray));
+        let table = Table::new(rows, [Constraint::Min(20), Constraint::Length(16)])
+            .header(header)
+            .block(Block::default().borders(Borders::ALL).title("Hosts"))
+            .row_highlight_style(Style::default().bg(Color::DarkGray));
 
         frame.render_stateful_widget(table, area, &mut self.table_state);
     }
