@@ -36,7 +36,6 @@ Or from crates.io:
     shell <type>        Generate shell integration script
     fzf                 Output commands for fzf integration
     tui                 Interactive entity browser (TUI)
-    manage              Interactive history browser (legacy TUI)
     merge <db-file>     Merge another database
     tokens              Manage stored redacted tokens
     hosts               List tracked hosts
