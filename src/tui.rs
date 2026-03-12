@@ -55,6 +55,14 @@ enum Mode {
     Normal,
     Filter,
     Confirm,
+    EditAlias,
+    Help,
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum EditField {
+    Command,
+    Description,
 }
 
 struct AppTUI<'a> {
@@ -69,6 +77,11 @@ struct AppTUI<'a> {
     sessions: Vec<Session>,
     tokens: Vec<Token>,
 
+    // Pagination (Commands tab)
+    page: usize,
+    page_size: usize,
+    total_commands: usize,
+
     // Table state per tab
     table_state: TableState,
     row_count: usize,
@@ -78,6 +91,11 @@ struct AppTUI<'a> {
 
     // Confirm delete
     confirm_msg: String,
+
+    // Edit alias
+    edit_field: EditField,
+    edit_buf: String,
+    edit_alias_name: String,
 
     // Status
     status: Option<String>,
@@ -96,10 +114,16 @@ impl<'a> AppTUI<'a> {
             hosts: Vec::new(),
             sessions: Vec::new(),
             tokens: Vec::new(),
+            page: 0,
+            page_size: 100,
+            total_commands: 0,
             table_state: TableState::default(),
             row_count: 0,
             filter: String::new(),
             confirm_msg: String::new(),
+            edit_field: EditField::Command,
+            edit_buf: String::new(),
+            edit_alias_name: String::new(),
             status: None,
             show_values: false,
             running: true,
@@ -112,7 +136,10 @@ impl<'a> AppTUI<'a> {
         self.table_state = TableState::default();
         match self.tab {
             Tab::Commands => {
-                self.commands = self.db.get_all_commands()?;
+                self.total_commands = self.db.count_commands()?;
+                self.commands = self
+                    .db
+                    .get_commands_paginated(self.page * self.page_size, self.page_size)?;
                 self.row_count = self.commands.len();
             }
             Tab::Aliases => {
@@ -170,6 +197,7 @@ impl<'a> AppTUI<'a> {
         let idx = (self.tab.index() + 1) % TABS.len();
         self.tab = TABS[idx];
         self.filter.clear();
+        self.page = 0;
         self.load_tab()
     }
 
@@ -181,6 +209,7 @@ impl<'a> AppTUI<'a> {
         };
         self.tab = TABS[idx];
         self.filter.clear();
+        self.page = 0;
         self.load_tab()
     }
 
@@ -259,7 +288,7 @@ impl<'a> AppTUI<'a> {
             }
             Tab::Sessions => {
                 if let Some(s) = self.sessions.get(idx) {
-                    self.db.delete_session(&s.id.to_string())?;
+                    self.db.delete_session(s.id.as_ref())?;
                     self.status = Some("Session deleted".into());
                 }
             }
@@ -274,11 +303,122 @@ impl<'a> AppTUI<'a> {
         self.load_tab()
     }
 
+    fn total_pages(&self) -> usize {
+        if self.total_commands == 0 {
+            1
+        } else {
+            self.total_commands.div_ceil(self.page_size)
+        }
+    }
+
+    fn next_page(&mut self) -> Result<()> {
+        if self.tab != Tab::Commands {
+            return Ok(());
+        }
+        if self.page + 1 < self.total_pages() {
+            self.page += 1;
+            self.load_tab()?;
+        }
+        Ok(())
+    }
+
+    fn prev_page(&mut self) -> Result<()> {
+        if self.tab != Tab::Commands {
+            return Ok(());
+        }
+        if self.page > 0 {
+            self.page -= 1;
+            self.load_tab()?;
+        }
+        Ok(())
+    }
+
+    fn start_edit_alias(&mut self) {
+        if self.tab != Tab::Aliases {
+            return;
+        }
+        let Some(idx) = self.selected_index() else {
+            return;
+        };
+        let Some(a) = self.aliases.get(idx) else {
+            return;
+        };
+        self.edit_alias_name = a.alias.clone();
+        self.edit_field = EditField::Command;
+        self.edit_buf = a.command.clone();
+        self.mode = Mode::EditAlias;
+    }
+
+    fn commit_edit_alias(&mut self) -> Result<()> {
+        let value = self.edit_buf.trim().to_string();
+        if value.is_empty() {
+            self.mode = Mode::Normal;
+            return Ok(());
+        }
+        match self.edit_field {
+            EditField::Command => {
+                self.db
+                    .update_alias(&self.edit_alias_name, &value, None)?;
+                self.status = Some(format!("Alias '{}' command updated", self.edit_alias_name));
+            }
+            EditField::Description => {
+                // Fetch current command to preserve it
+                if let Some(a) = self.aliases.iter().find(|a| a.alias == self.edit_alias_name) {
+                    self.db
+                        .update_alias(&self.edit_alias_name, &a.command, Some(&value))?;
+                    self.status =
+                        Some(format!("Alias '{}' description updated", self.edit_alias_name));
+                }
+            }
+        }
+        self.mode = Mode::Normal;
+        self.load_tab()
+    }
+
     fn handle_key(&mut self, key: KeyEvent) -> Result<()> {
         match self.mode {
+            Mode::Help => {
+                self.mode = Mode::Normal;
+            }
             Mode::Confirm => match key.code {
                 KeyCode::Char('y') | KeyCode::Char('Y') => self.confirm_delete()?,
                 _ => self.mode = Mode::Normal,
+            },
+            Mode::EditAlias => match key.code {
+                KeyCode::Esc => {
+                    self.mode = Mode::Normal;
+                }
+                KeyCode::Enter => {
+                    self.commit_edit_alias()?;
+                }
+                KeyCode::Tab => {
+                    // Switch between editing command and description
+                    let Some(a) = self
+                        .aliases
+                        .iter()
+                        .find(|a| a.alias == self.edit_alias_name)
+                    else {
+                        self.mode = Mode::Normal;
+                        return Ok(());
+                    };
+                    match self.edit_field {
+                        EditField::Command => {
+                            self.edit_field = EditField::Description;
+                            self.edit_buf = a.description.clone();
+                        }
+                        EditField::Description => {
+                            self.edit_field = EditField::Command;
+                            self.edit_buf = a.command.clone();
+                        }
+                    }
+                }
+                KeyCode::Backspace => {
+                    self.edit_buf.pop();
+                }
+                KeyCode::Char(c) => {
+                    self.edit_buf.push(c);
+                }
+                _ => {}
             },
             Mode::Filter => match key.code {
                 KeyCode::Esc => {
@@ -308,37 +448,50 @@ impl<'a> AppTUI<'a> {
                 KeyCode::Char('1') => {
                     self.tab = Tab::Commands;
                     self.filter.clear();
+                    self.page = 0;
                     self.load_tab()?;
                 }
                 KeyCode::Char('2') => {
                     self.tab = Tab::Aliases;
                     self.filter.clear();
+                    self.page = 0;
                     self.load_tab()?;
                 }
                 KeyCode::Char('3') => {
                     self.tab = Tab::Hosts;
                     self.filter.clear();
+                    self.page = 0;
                     self.load_tab()?;
                 }
                 KeyCode::Char('4') => {
                     self.tab = Tab::Sessions;
                     self.filter.clear();
+                    self.page = 0;
                     self.load_tab()?;
                 }
                 KeyCode::Char('5') => {
                     self.tab = Tab::Tokens;
                     self.filter.clear();
+                    self.page = 0;
                     self.load_tab()?;
                 }
                 KeyCode::Up | KeyCode::Char('k') => self.select_prev(),
                 KeyCode::Down | KeyCode::Char('j') => self.select_next(),
+                KeyCode::Right | KeyCode::Char(']') => self.next_page()?,
+                KeyCode::Left | KeyCode::Char('[') => self.prev_page()?,
                 KeyCode::Char('/') => {
                     self.filter.clear();
                     self.mode = Mode::Filter;
                 }
                 KeyCode::Char('d') | KeyCode::Delete => self.request_delete(),
+                KeyCode::Char('e') if self.tab == Tab::Aliases => {
+                    self.start_edit_alias();
+                }
                 KeyCode::Char('v') if self.tab == Tab::Tokens => {
                     self.show_values = !self.show_values;
+                }
+                KeyCode::Char('?') => {
+                    self.mode = Mode::Help;
                 }
                 _ => {}
             },
@@ -360,8 +513,11 @@ impl<'a> AppTUI<'a> {
         self.render_table(frame, chunks[1]);
         self.render_status(frame, chunks[2]);
 
-        if self.mode == Mode::Confirm {
-            self.render_confirm(frame, frame.area());
+        match self.mode {
+            Mode::Confirm => self.render_confirm(frame, frame.area()),
+            Mode::EditAlias => self.render_edit_alias(frame, frame.area()),
+            Mode::Help => self.render_help(frame, frame.area()),
+            _ => {}
         }
     }
 
@@ -439,10 +595,18 @@ impl<'a> AppTUI<'a> {
                 Constraint::Length(25),
                 Constraint::Length(1),
             ],
-        )
-        .header(header)
-        .block(Block::default().borders(Borders::ALL).title("Commands"))
-        .row_highlight_style(Style::default().bg(Color::DarkGray));
+        );
+        let title = format!(
+            "Commands (page {}/{}, {} total)",
+            self.page + 1,
+            self.total_pages(),
+            self.total_commands,
+        );
+
+        let table = table
+            .header(header)
+            .block(Block::default().borders(Borders::ALL).title(title))
+            .row_highlight_style(Style::default().bg(Color::DarkGray));
 
         frame.render_stateful_widget(table, area, &mut self.table_state);
     }
@@ -520,14 +684,14 @@ impl<'a> AppTUI<'a> {
         let rows: Vec<Row> = self
             .sessions
             .iter()
-            .filter(|s| self.matches_filter(&s.id.to_string()))
+            .filter(|s| self.matches_filter(s.id.as_ref()))
             .map(|s| {
                 let ended = s
                     .ended_at
                     .map(|e| e.format("%Y-%m-%d %H:%M").to_string())
                     .unwrap_or_else(|| "active".into());
                 Row::new(vec![
-                    Cell::from(truncate(&s.id.to_string(), 12)),
+                    Cell::from(truncate(s.id.as_ref(), 12)),
                     Cell::from(s.host_id.to_string()),
                     Cell::from(s.started_at.format("%Y-%m-%d %H:%M").to_string()),
                     Cell::from(ended),
@@ -602,18 +766,34 @@ impl<'a> AppTUI<'a> {
     fn render_status(&self, frame: &mut Frame, area: Rect) {
         let text = match self.mode {
             Mode::Filter => format!(" /{}_ | Esc=cancel Enter=done", self.filter),
-            Mode::Confirm => String::new(),
+            Mode::Confirm | Mode::Help => String::new(),
+            Mode::EditAlias => {
+                let field = match self.edit_field {
+                    EditField::Command => "command",
+                    EditField::Description => "description",
+                };
+                format!(
+                    " Editing {} [{}] | Tab=switch field Enter=save Esc=cancel",
+                    self.edit_alias_name, field
+                )
+            }
             Mode::Normal => {
+                let extra = match self.tab {
+                    Tab::Aliases => " e=edit",
+                    Tab::Tokens => " v=reveal",
+                    Tab::Commands => " [/]=page",
+                    _ => "",
+                };
                 if let Some(ref msg) = self.status {
-                    format!(" {} | q=quit Tab=switch /=filter d=delete", msg)
+                    format!(" {} | q=quit Tab=switch /=filter d=delete{}", msg, extra)
                 } else {
-                    " q=quit Tab=switch /=filter d=delete ?=help".into()
+                    format!(" q=quit Tab=switch /=filter d=delete{} ?=help", extra)
                 }
             }
         };
 
         let style = match self.mode {
-            Mode::Filter => Style::default().fg(Color::Yellow),
+            Mode::Filter | Mode::EditAlias => Style::default().fg(Color::Yellow),
             _ => Style::default().fg(Color::DarkGray),
         };
 
@@ -634,6 +814,58 @@ impl<'a> AppTUI<'a> {
             .style(Style::default().fg(Color::White))
             .wrap(Wrap { trim: false });
         // Clear the area behind the popup
+        frame.render_widget(ratatui::widgets::Clear, block_area);
+        frame.render_widget(popup, block_area);
+    }
+
+    fn render_edit_alias(&self, frame: &mut Frame, area: Rect) {
+        let block_area = centered_rect(60, 7, area);
+        let field_name = match self.edit_field {
+            EditField::Command => "Command",
+            EditField::Description => "Description",
+        };
+        let title = format!("Edit Alias '{}' — {}", self.edit_alias_name, field_name);
+        let text = format!("{}_\n\nTab=switch field  Enter=save  Esc=cancel", self.edit_buf);
+        let popup = Paragraph::new(text)
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title(title)
+                    .style(Style::default().fg(Color::Cyan)),
+            )
+            .style(Style::default().fg(Color::White))
+            .wrap(Wrap { trim: false });
+        frame.render_widget(ratatui::widgets::Clear, block_area);
+        frame.render_widget(popup, block_area);
+    }
+
+    fn render_help(&self, frame: &mut Frame, area: Rect) {
+        let block_area = centered_rect(60, 16, area);
+        let help_text = "\
+Navigation
+  j/↓  Move down          k/↑  Move up
+  Tab  Next tab         S-Tab  Previous tab
+  1-5  Jump to tab
+  [/←  Previous page     ]/→  Next page (Commands)
+
+Actions
+  /    Filter rows         d    Delete selected
+  e    Edit alias (Aliases tab only)
+  v    Toggle token values (Tokens tab only)
+
+General
+  q    Quit              Esc    Cancel / Quit
+  ?    This help
+
+Press any key to close";
+        let popup = Paragraph::new(help_text)
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title("Help")
+                    .style(Style::default().fg(Color::Cyan)),
+            )
+            .style(Style::default().fg(Color::White));
         frame.render_widget(ratatui::widgets::Clear, block_area);
         frame.render_widget(popup, block_area);
     }

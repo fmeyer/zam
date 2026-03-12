@@ -521,6 +521,50 @@ impl Database {
         Ok(commands)
     }
 
+    /// Get commands excluding imported, with pagination (most recent first)
+    pub fn get_commands_paginated(
+        &self,
+        offset: usize,
+        limit: usize,
+    ) -> Result<Vec<CommandEntry>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, session_id, command, timestamp, directory, redacted, exit_code
+             FROM commands
+             WHERE directory != '<imported>'
+             ORDER BY timestamp DESC
+             LIMIT ?1 OFFSET ?2",
+        )?;
+
+        let commands = stmt
+            .query_map(rusqlite::params![limit as i64, offset as i64], |row| {
+                Ok(CommandEntry {
+                    id: row.get(0)?,
+                    session_id: row.get(1)?,
+                    command: row.get(2)?,
+                    timestamp: row
+                        .get::<_, String>(3)?
+                        .parse()
+                        .unwrap_or_else(|_| Utc::now()),
+                    directory: row.get(4)?,
+                    redacted: row.get::<_, i32>(5)? != 0,
+                    exit_code: row.get(6)?,
+                })
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+
+        Ok(commands)
+    }
+
+    /// Count non-imported commands
+    pub fn count_commands(&self) -> Result<usize> {
+        let count: i64 = self.conn.query_row(
+            "SELECT COUNT(*) FROM commands WHERE directory != '<imported>'",
+            [],
+            |row| row.get(0),
+        )?;
+        Ok(count as usize)
+    }
+
     /// Get database statistics
     pub fn get_stats(&self) -> Result<DatabaseStats> {
         let total_commands: i64 =
