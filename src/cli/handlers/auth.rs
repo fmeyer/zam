@@ -80,6 +80,7 @@ fn handle_auth_load(app: &mut CliApp, args: &AuthArgs, item: &str) -> Result<()>
     };
 
     let mut count = 0;
+    let mut keys = Vec::new();
     for field in &op_item.fields {
         // Only export fields that have a section (skip built-in metadata)
         if field.section.is_none() {
@@ -102,7 +103,10 @@ fn handle_auth_load(app: &mut CliApp, args: &AuthArgs, item: &str) -> Result<()>
             continue;
         }
 
-        println!("export {}={}", key, shell_escape(value));
+        if args.export {
+            println!("export {}={}", key, shell_escape(value));
+        }
+        keys.push(key.clone());
         count += 1;
 
         if let (Some(db), Some(sid)) = (db, &session_id) {
@@ -111,8 +115,19 @@ fn handle_auth_load(app: &mut CliApp, args: &AuthArgs, item: &str) -> Result<()>
         }
     }
 
-    if !app.quiet {
-        eprintln!("Loaded {} secrets from 1Password item '{}'", count, item);
+    if args.export {
+        if !app.quiet {
+            eprintln!("Loaded {} secrets from 1Password item '{}'", count, item);
+        }
+    } else {
+        println!(
+            "Found {} secrets in '{}': {}",
+            count,
+            item,
+            keys.join(", ")
+        );
+        println!("\nUse zam-auth to load them into your shell:");
+        println!("  zam-auth {}", item);
     }
 
     Ok(())

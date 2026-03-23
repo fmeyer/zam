@@ -43,6 +43,10 @@ pub struct AuthArgs {
     #[arg(short = 'L', long)]
     pub list: bool,
 
+    /// Output export statements (used by zam-auth wrapper)
+    #[arg(long)]
+    pub export: bool,
+
     /// Clear all session secrets (outputs unset lines)
     #[arg(long)]
     pub clear: bool,

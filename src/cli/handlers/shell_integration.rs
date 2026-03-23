@@ -63,7 +63,7 @@ bindkey '^R' zam-widget
 # Load 1Password secrets into session environment
 zam-auth() {
     local output
-    output="$(zam auth "$@" --session-id "$ZAM_SESSION_ID")"
+    output="$(zam auth "$@" --export --session-id "$ZAM_SESSION_ID")"
     if [[ $? -eq 0 && -n "$output" ]]; then
         eval "$output"
     fi
@@ -99,7 +99,7 @@ bind -x '"\C-r": "READLINE_LINE=$(zam fzf | fzf --height 50% --reverse --tac 2>/
 # Load 1Password secrets into session environment
 zam-auth() {
     local output
-    output="$(zam auth "$@" --session-id "$ZAM_SESSION_ID")"
+    output="$(zam auth "$@" --export --session-id "$ZAM_SESSION_ID")"
     if [[ $? -eq 0 && -n "$output" ]]; then
         eval "$output"
     fi
@@ -142,7 +142,7 @@ bind \cr zam_fzf_search
 
 # Load 1Password secrets into session environment
 function zam-auth
-    set -l output (zam auth $argv --session-id "$ZAM_SESSION_ID" 2>/dev/null)
+    set -l output (zam auth $argv --export --session-id "$ZAM_SESSION_ID" 2>/dev/null)
     if test $status -eq 0 -a -n "$output"
         eval $output
     end
