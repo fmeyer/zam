@@ -124,12 +124,7 @@ fn handle_auth_load(app: &mut CliApp, args: &AuthArgs, item: &str) -> Result<()>
             eprintln!("Loaded {} secrets from 1Password item '{}'", count, item);
         }
     } else {
-        println!(
-            "Found {} secrets in '{}': {}",
-            count,
-            item,
-            keys.join(", ")
-        );
+        println!("Found {} secrets in '{}': {}", count, item, keys.join(", "));
         println!("\nUse zam-auth to load them into your shell:");
         println!("  zam-auth {}", item);
     }
