@@ -90,6 +90,8 @@ pub enum Commands {
     Alias(AliasArgs),
     /// Close an active session
     EndSession(EndSessionArgs),
+    /// Load secrets from 1Password into shell environment
+    Auth(AuthArgs),
     /// Interactive entity browser (database only)
     Tui,
 }
@@ -183,6 +185,7 @@ impl CliApp {
             Commands::Sessions(args) => handle_sessions(self, args),
             Commands::Alias(args) => handle_alias(self, args),
             Commands::EndSession(args) => handle_end_session(self, args),
+            Commands::Auth(args) => handle_auth(self, args),
             Commands::Tui => handle_tui(self),
         }
     }
