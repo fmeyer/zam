@@ -44,9 +44,13 @@ pub fn handle_auth(app: &mut CliApp, args: &AuthArgs) -> Result<()> {
 
     let Some(ref item) = args.item else {
         return Err(Error::custom(
-            "Usage: zam auth <ITEM> [--session-id ID]\n       zam auth --list [--session-id ID]\n       zam auth --clear [--session-id ID]",
+            "Usage: zam auth <ITEM> [--session-id ID]\n       zam auth <ITEM> --set KEY:VALUE\n       zam auth --list [--session-id ID]\n       zam auth --clear [--session-id ID]",
         ));
     };
+
+    if let Some(ref kv) = args.set {
+        return handle_auth_set(app, item, kv);
+    }
 
     handle_auth_load(app, args, item)
 }
@@ -177,6 +181,45 @@ fn handle_auth_clear(app: &mut CliApp, args: &AuthArgs) -> Result<()> {
 
     if !app.quiet {
         eprintln!("Cleared {} secrets from session", keys.len());
+    }
+
+    Ok(())
+}
+
+fn handle_auth_set(app: &CliApp, item: &str, kv: &str) -> Result<()> {
+    let (key, value) = kv
+        .split_once(':')
+        .ok_or_else(|| Error::custom("Invalid format. Use KEY:VALUE (e.g. API_TOKEN:secret123)"))?;
+
+    let key = key.trim();
+    let value = value.trim();
+
+    if key.is_empty() || value.is_empty() {
+        return Err(Error::custom("Both KEY and VALUE must be non-empty"));
+    }
+
+    let assignment = format!("kv.{}[text]={}", key, value);
+
+    let output = match Command::new("op")
+        .args(["item", "edit", item, &assignment])
+        .output()
+    {
+        Ok(output) => output,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            return Err(Error::custom(
+                "1Password CLI (op) not found. Install from https://1password.com/downloads/command-line/",
+            ));
+        }
+        Err(e) => return Err(Error::custom(format!("Failed to run op: {}", e))),
+    };
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(Error::custom(format!("op failed: {}", stderr.trim())));
+    }
+
+    if !app.quiet {
+        println!("Set {}=*** in 1Password item '{}'", key, item);
     }
 
     Ok(())
