@@ -64,6 +64,16 @@ pub struct Alias {
     pub date_updated: DateTime<Utc>,
 }
 
+/// Represents a secret key loaded into a session (value is NOT stored)
+#[derive(Debug, Clone)]
+pub struct SessionSecret {
+    pub id: i64,
+    pub session_id: SessionId,
+    pub key_name: String,
+    pub source: String,
+    pub loaded_at: DateTime<Utc>,
+}
+
 /// Statistics about the database
 #[derive(Debug, Clone, Default)]
 pub struct DatabaseStats {
@@ -197,6 +207,24 @@ impl Database {
 
         self.conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_sessions_host ON sessions(host_id)",
+            [],
+        )?;
+
+        // Session secrets table - tracks keys loaded from external sources (values NOT stored)
+        self.conn.execute(
+            "CREATE TABLE IF NOT EXISTS session_secrets (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT NOT NULL,
+                key_name TEXT NOT NULL,
+                source TEXT NOT NULL,
+                loaded_at TEXT NOT NULL,
+                FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+            )",
+            [],
+        )?;
+
+        self.conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_session_secrets_session ON session_secrets(session_id)",
             [],
         )?;
 
@@ -1117,6 +1145,62 @@ impl Database {
         self.conn
             .execute("DELETE FROM tokens WHERE id = ?1", [id])?;
         Ok(())
+    }
+
+    /// Store a session secret key name (value is NOT stored)
+    pub fn store_session_secret(
+        &self,
+        session_id: &str,
+        key_name: &str,
+        source: &str,
+    ) -> Result<()> {
+        let now = Utc::now().to_rfc3339();
+        self.conn.execute(
+            "INSERT INTO session_secrets (session_id, key_name, source, loaded_at)
+             VALUES (?1, ?2, ?3, ?4)",
+            params![session_id, key_name, source, now],
+        )?;
+        Ok(())
+    }
+
+    /// Get all secret key names for a session
+    pub fn get_session_secrets(&self, session_id: &str) -> Result<Vec<SessionSecret>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, session_id, key_name, source, loaded_at
+             FROM session_secrets
+             WHERE session_id = ?1
+             ORDER BY loaded_at",
+        )?;
+
+        let secrets = stmt
+            .query_map(params![session_id], |row| {
+                Ok(SessionSecret {
+                    id: row.get(0)?,
+                    session_id: SessionId::new(row.get(1)?),
+                    key_name: row.get(2)?,
+                    source: row.get(3)?,
+                    loaded_at: row
+                        .get::<_, String>(4)?
+                        .parse()
+                        .unwrap_or_else(|_| Utc::now()),
+                })
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+
+        Ok(secrets)
+    }
+
+    /// Clear session secrets and return the key names (for unset output)
+    pub fn clear_session_secrets(&self, session_id: &str) -> Result<Vec<String>> {
+        let keys = self.get_session_secrets(session_id)?;
+        let key_names: Vec<String> = keys.into_iter().map(|s| s.key_name).collect();
+
+        self.conn.execute(
+            "DELETE FROM session_secrets WHERE session_id = ?1",
+            params![session_id],
+        )?;
+
+        Ok(key_names)
     }
 }
 

@@ -8,6 +8,7 @@
 //! - `util`: Utility functions for handlers
 
 mod alias;
+mod auth;
 mod basic;
 mod config;
 mod database;
@@ -16,6 +17,7 @@ mod shell_integration;
 mod tui_handler;
 
 pub use alias::*;
+pub use auth::*;
 pub use basic::*;
 pub use config::*;
 pub use database::*;
