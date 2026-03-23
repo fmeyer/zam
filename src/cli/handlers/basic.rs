@@ -21,6 +21,20 @@ pub fn handle_log(app: &mut CliApp, args: &LogArgs) -> Result<()> {
         None
     };
 
+    // Set static session ID if provided (database backend only)
+    if let Some(ref session_id) = args.session_id {
+        match &mut app.backend {
+            HistoryBackend::Database(mgr) => {
+                mgr.set_session_id(session_id)?;
+            }
+            HistoryBackend::File(_) => {
+                return Err(Error::custom(
+                    "--session-id requires database backend (use --use-db)",
+                ));
+            }
+        }
+    }
+
     // Log the command
     if timestamp.is_none() {
         // Use trait method for simple case
