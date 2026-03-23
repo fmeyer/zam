@@ -51,6 +51,10 @@ pub struct AuthArgs {
     #[arg(long)]
     pub clear: bool,
 
+    /// Store a secret in the 1Password item (format: KEY:VALUE)
+    #[arg(long, value_name = "KEY:VALUE")]
+    pub set: Option<String>,
+
     /// Session ID to associate secrets with
     #[arg(short = 'S', long)]
     pub session_id: Option<String>,
