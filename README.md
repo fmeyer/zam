@@ -107,8 +107,7 @@ Add a hook to `.claude/settings.json`:
 
 Commands can then be reviewed per session:
 
-    zam sessions --host-id 1 --show-commands "claude-<session-id>"
-    zam search "cargo" -S "claude-<session-id>"
+    zam sessions --show-commands "claude-<session-id>"
 
 Without `--session-id`, each `zam log` invocation creates a new session.
 The flag reuses an existing session or creates one with the given ID on
