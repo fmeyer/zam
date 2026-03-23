@@ -404,9 +404,7 @@ impl<'a> AppTUI<'a> {
             Tab::Sessions => self
                 .sessions
                 .iter()
-                .filter(|s| {
-                    self.matches_filter(s.id.as_ref()) || self.matches_filter(&s.hostname)
-                })
+                .filter(|s| self.matches_filter(s.id.as_ref()) || self.matches_filter(&s.hostname))
                 .count(),
             Tab::Tokens => self
                 .tokens
@@ -575,8 +573,7 @@ impl<'a> AppTUI<'a> {
     }
 
     fn is_paginated_tab(&self) -> bool {
-        matches!(self.tab, Tab::Commands | Tab::Sessions)
-            && self.session_detail_id.is_none()
+        matches!(self.tab, Tab::Commands | Tab::Sessions) && self.session_detail_id.is_none()
     }
 
     fn total_pages(&self) -> usize {
@@ -1104,9 +1101,7 @@ impl<'a> AppTUI<'a> {
         let rows: Vec<Row> = self
             .sessions
             .iter()
-            .filter(|s| {
-                self.matches_filter(s.id.as_ref()) || self.matches_filter(&s.hostname)
-            })
+            .filter(|s| self.matches_filter(s.id.as_ref()) || self.matches_filter(&s.hostname))
             .map(|s| {
                 let status = s
                     .ended_at
@@ -1282,7 +1277,9 @@ impl<'a> AppTUI<'a> {
         };
 
         let style = match self.mode {
-            Mode::Filter if !self.filter.is_empty() => Style::default().fg(self.theme.status_active),
+            Mode::Filter if !self.filter.is_empty() => {
+                Style::default().fg(self.theme.status_active)
+            }
             Mode::EditAlias => Style::default().fg(self.theme.status_active),
             _ => Style::default().fg(self.theme.status_default),
         };

@@ -1035,9 +1035,9 @@ impl Database {
 
     /// Count total sessions
     pub fn count_sessions(&self) -> Result<usize> {
-        let count: i64 =
-            self.conn
-                .query_row("SELECT COUNT(*) FROM sessions", [], |row| row.get(0))?;
+        let count: i64 = self
+            .conn
+            .query_row("SELECT COUNT(*) FROM sessions", [], |row| row.get(0))?;
         Ok(count as usize)
     }
 
