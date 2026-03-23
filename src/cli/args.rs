@@ -34,6 +34,25 @@ pub struct EndSessionArgs {
 }
 
 #[derive(Args)]
+pub struct AuthArgs {
+    /// 1Password item name to load secrets from
+    #[arg(value_name = "ITEM")]
+    pub item: Option<String>,
+
+    /// List keys loaded for the current session
+    #[arg(short = 'L', long)]
+    pub list: bool,
+
+    /// Clear all session secrets (outputs unset lines)
+    #[arg(long)]
+    pub clear: bool,
+
+    /// Session ID to associate secrets with
+    #[arg(short = 'S', long)]
+    pub session_id: Option<String>,
+}
+
+#[derive(Args)]
 pub struct SearchArgs {
     /// Search term
     #[arg(value_name = "TERM")]

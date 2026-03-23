@@ -60,6 +60,15 @@ zam-widget() {
 zle -N zam-widget
 bindkey '^R' zam-widget
 
+# Load 1Password secrets into session environment
+zam-auth() {
+    local output
+    output="$(zam auth "$@" --session-id "$ZAM_SESSION_ID")"
+    if [[ $? -eq 0 && -n "$output" ]]; then
+        eval "$output"
+    fi
+}
+
 # Load zam aliases into shell
 eval "$(zam alias list --shell 2>/dev/null)"
 "#
@@ -86,6 +95,15 @@ PROMPT_COMMAND="log_command \"\$BASH_COMMAND\"; $PROMPT_COMMAND"
 
 # Interactive history search with fzf (Ctrl+R)
 bind -x '"\C-r": "READLINE_LINE=$(zam fzf | fzf --height 50% --reverse --tac 2>/dev/tty); READLINE_POINT=${#READLINE_LINE}"'
+
+# Load 1Password secrets into session environment
+zam-auth() {
+    local output
+    output="$(zam auth "$@" --session-id "$ZAM_SESSION_ID")"
+    if [[ $? -eq 0 && -n "$output" ]]; then
+        eval "$output"
+    fi
+}
 
 # Load zam aliases into shell
 eval "$(zam alias list --shell 2>/dev/null)"
@@ -121,6 +139,14 @@ end
 
 # Replace default Ctrl-R with fzf search
 bind \cr zam_fzf_search
+
+# Load 1Password secrets into session environment
+function zam-auth
+    set -l output (zam auth $argv --session-id "$ZAM_SESSION_ID" 2>/dev/null)
+    if test $status -eq 0 -a -n "$output"
+        eval $output
+    end
+end
 
 # Load zam aliases into shell
 eval (zam alias list --shell 2>/dev/null)
