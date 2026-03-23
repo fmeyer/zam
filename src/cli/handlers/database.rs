@@ -166,3 +166,22 @@ pub fn handle_sessions(app: &mut CliApp, args: &SessionsArgs) -> Result<()> {
 
     Ok(())
 }
+
+pub fn handle_end_session(app: &mut CliApp, args: &EndSessionArgs) -> Result<()> {
+    let mgr = match &mut app.backend {
+        HistoryBackend::Database(mgr) => mgr,
+        HistoryBackend::File(_) => {
+            return Err(Error::custom(
+                "Session management requires database backend.",
+            ));
+        }
+    };
+
+    mgr.end_session(&args.session_id)?;
+
+    if !app.quiet {
+        println!("Session {} closed", args.session_id);
+    }
+
+    Ok(())
+}

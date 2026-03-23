@@ -80,6 +80,40 @@ Or from crates.io:
     # Check status
     zam status
 
+## CLAUDE CODE INTEGRATION
+
+zam supports static sessions via `--session-id`, so all commands logged by
+a long-running tool like Claude Code are grouped under one session.
+
+Add a hook to `.claude/settings.json`:
+
+```json
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "zam log \"$TOOL_INPUT\" --session-id \"claude-${SESSION_ID}\""
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+Commands can then be reviewed per session:
+
+    zam sessions --host-id 1 --show-commands "claude-<session-id>"
+    zam search "cargo" -S "claude-<session-id>"
+
+Without `--session-id`, each `zam log` invocation creates a new session.
+The flag reuses an existing session or creates one with the given ID on
+first use.
+
 ## CONFIGURATION
 
 Default config file: `~/.zam.json`

@@ -88,6 +88,8 @@ pub enum Commands {
     Sessions(SessionsArgs),
     /// Manage shell aliases
     Alias(AliasArgs),
+    /// Close an active session
+    EndSession(EndSessionArgs),
     /// Interactive entity browser (database only)
     Tui,
 }
@@ -180,6 +182,7 @@ impl CliApp {
             Commands::Hosts(args) => handle_hosts(self, args),
             Commands::Sessions(args) => handle_sessions(self, args),
             Commands::Alias(args) => handle_alias(self, args),
+            Commands::EndSession(args) => handle_end_session(self, args),
             Commands::Tui => handle_tui(self),
         }
     }

@@ -20,6 +20,17 @@ pub struct LogArgs {
     /// Skip redaction for this command
     #[arg(long)]
     pub no_redact: bool,
+
+    /// Use a static session ID (e.g. for non-interactive tools like Claude Code)
+    #[arg(short = 'S', long)]
+    pub session_id: Option<String>,
+}
+
+#[derive(Args)]
+pub struct EndSessionArgs {
+    /// Session ID to close
+    #[arg(value_name = "SESSION_ID")]
+    pub session_id: String,
 }
 
 #[derive(Args)]

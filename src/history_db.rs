@@ -56,6 +56,13 @@ impl HistoryManagerDb {
         })
     }
 
+    /// Set a static session ID, resuming an existing session or creating one.
+    /// This allows multiple `zam log` invocations to share the same session,
+    /// useful for non-interactive tools like Claude Code.
+    pub fn set_session_id(&mut self, session_id: &str) -> Result<()> {
+        self.db.resume_session(session_id)
+    }
+
     /// Log a command to the database
     pub fn log_command(&mut self, command: &str) -> Result<()> {
         self.log_command_with_timestamp(command, None, None)

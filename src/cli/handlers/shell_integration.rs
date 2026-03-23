@@ -27,19 +27,26 @@ fn generate_zsh_integration() -> String {
     r#"# Zam Zsh Integration
 # Add this to your ~/.zshrc
 
+# One session per shell instance
+export ZAM_SESSION_ID="zsh-$$-$(date +%s)"
+
 # Log only successful commands
 _zam_last_cmd=""
 _zam_preexec() { _zam_last_cmd="$1"; }
 _zam_precmd() {
     local rc=$?
     if [[ $rc -eq 0 && -n "$_zam_last_cmd" ]]; then
-        zam log "$_zam_last_cmd"
+        zam log "$_zam_last_cmd" --session-id "$ZAM_SESSION_ID"
     fi
     _zam_last_cmd=""
+}
+_zam_zshexit() {
+    zam end-session "$ZAM_SESSION_ID" 2>/dev/null
 }
 autoload -Uz add-zsh-hook
 add-zsh-hook preexec _zam_preexec
 add-zsh-hook precmd _zam_precmd
+add-zsh-hook zshexit _zam_zshexit
 
 # Interactive TUI history browser (Ctrl+R)
 zam-widget() {
@@ -63,10 +70,16 @@ fn generate_bash_integration() -> String {
     r#"# Zam Bash Integration
 # Add this to your ~/.bashrc
 
+# One session per shell instance
+export ZAM_SESSION_ID="bash-$$-$(date +%s)"
+
 # Function to log commands
 log_command() {
-    zam log "$1"
+    zam log "$1" --session-id "$ZAM_SESSION_ID"
 }
+
+# Close session on shell exit
+trap 'zam end-session "$ZAM_SESSION_ID" 2>/dev/null' EXIT
 
 # Hook to log commands after execution
 PROMPT_COMMAND="log_command \"\$BASH_COMMAND\"; $PROMPT_COMMAND"
@@ -84,9 +97,17 @@ fn generate_fish_integration() -> String {
     r#"# Zam Fish Integration
 # Add this to your ~/.config/fish/config.fish
 
+# One session per shell instance
+set -gx ZAM_SESSION_ID "fish-"(echo %self)"-"(date +%s)
+
+# Close session on shell exit
+function _zam_exit --on-event fish_exit
+    zam end-session "$ZAM_SESSION_ID" 2>/dev/null
+end
+
 # Function to log commands
 function zam_log_command --on-event fish_preexec
-    zam log "$argv[1]" &
+    zam log "$argv[1]" --session-id "$ZAM_SESSION_ID" &
 end
 
 # Interactive history search with fzf (Ctrl+R)

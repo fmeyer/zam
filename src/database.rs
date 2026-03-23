@@ -26,6 +26,7 @@ pub struct Host {
 pub struct Session {
     pub id: SessionId,
     pub host_id: HostId,
+    pub hostname: String,
     pub started_at: DateTime<Utc>,
     pub ended_at: Option<DateTime<Utc>>,
 }
@@ -269,6 +270,28 @@ impl Database {
         } else {
             self.start_session()
         }
+    }
+
+    /// Resume an existing session by ID, or create one with that ID if it doesn't exist.
+    /// Useful for static sessions (e.g. Claude Code) where multiple `zam log` invocations
+    /// should share the same session.
+    pub fn resume_session(&mut self, session_id: &str) -> Result<()> {
+        let exists: bool = self.conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM sessions WHERE id = ?1)",
+            params![session_id],
+            |row| row.get(0),
+        )?;
+
+        if !exists {
+            let now = Utc::now().to_rfc3339();
+            self.conn.execute(
+                "INSERT INTO sessions (id, host_id, started_at) VALUES (?1, ?2, ?3)",
+                params![session_id, self.current_host_id.as_i64(), now],
+            )?;
+        }
+
+        self.current_session_id = Some(SessionId::new(session_id.to_string()));
+        Ok(())
     }
 
     /// Add a command to the database
@@ -631,6 +654,35 @@ impl Database {
         Ok(commands)
     }
 
+    /// Get all commands for a specific session
+    pub fn get_commands_for_session(&self, session_id: &str) -> Result<Vec<CommandEntry>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, session_id, command, timestamp, directory, redacted, exit_code
+             FROM commands
+             WHERE session_id = ?1
+             ORDER BY timestamp DESC",
+        )?;
+
+        let commands = stmt
+            .query_map(rusqlite::params![session_id], |row| {
+                Ok(CommandEntry {
+                    id: row.get(0)?,
+                    session_id: row.get(1)?,
+                    command: row.get(2)?,
+                    timestamp: row
+                        .get::<_, String>(3)?
+                        .parse()
+                        .unwrap_or_else(|_| Utc::now()),
+                    directory: row.get(4)?,
+                    redacted: row.get::<_, i32>(5)? != 0,
+                    exit_code: row.get(6)?,
+                })
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+
+        Ok(commands)
+    }
+
     /// Get the most frequently used unique commands globally
     pub fn get_frequent_commands(&self, limit: usize) -> Result<Vec<(String, usize)>> {
         let mut stmt = self.conn.prepare(
@@ -739,10 +791,11 @@ impl Database {
     /// Get sessions for a host
     pub fn get_sessions_for_host(&self, host_id: HostId) -> Result<Vec<Session>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, host_id, started_at, ended_at
-             FROM sessions
-             WHERE host_id = ?1
-             ORDER BY started_at DESC",
+            "SELECT s.id, s.host_id, COALESCE(h.hostname, '?'), s.started_at, s.ended_at
+             FROM sessions s
+             LEFT JOIN hosts h ON s.host_id = h.id
+             WHERE s.host_id = ?1
+             ORDER BY s.started_at DESC",
         )?;
 
         let sessions = stmt
@@ -750,12 +803,13 @@ impl Database {
                 Ok(Session {
                     id: SessionId::new(row.get(0)?),
                     host_id: HostId::new(row.get(1)?),
+                    hostname: row.get(2)?,
                     started_at: row
-                        .get::<_, String>(2)?
+                        .get::<_, String>(3)?
                         .parse()
                         .unwrap_or_else(|_| Utc::now()),
                     ended_at: row
-                        .get::<_, Option<String>>(3)?
+                        .get::<_, Option<String>>(4)?
                         .and_then(|s| s.parse().ok()),
                 })
             })?
@@ -953,9 +1007,10 @@ impl Database {
     /// Get all sessions across all hosts
     pub fn get_all_sessions(&self) -> Result<Vec<Session>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, host_id, started_at, ended_at
-             FROM sessions
-             ORDER BY started_at DESC",
+            "SELECT s.id, s.host_id, COALESCE(h.hostname, '?'), s.started_at, s.ended_at
+             FROM sessions s
+             LEFT JOIN hosts h ON s.host_id = h.id
+             ORDER BY s.started_at DESC",
         )?;
 
         let sessions = stmt
@@ -963,12 +1018,51 @@ impl Database {
                 Ok(Session {
                     id: SessionId::new(row.get(0)?),
                     host_id: HostId::new(row.get(1)?),
+                    hostname: row.get(2)?,
                     started_at: row
-                        .get::<_, String>(2)?
+                        .get::<_, String>(3)?
                         .parse()
                         .unwrap_or_else(|_| Utc::now()),
                     ended_at: row
-                        .get::<_, Option<String>>(3)?
+                        .get::<_, Option<String>>(4)?
+                        .and_then(|s| s.parse().ok()),
+                })
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+
+        Ok(sessions)
+    }
+
+    /// Count total sessions
+    pub fn count_sessions(&self) -> Result<usize> {
+        let count: i64 =
+            self.conn
+                .query_row("SELECT COUNT(*) FROM sessions", [], |row| row.get(0))?;
+        Ok(count as usize)
+    }
+
+    /// Get sessions with pagination
+    pub fn get_sessions_paginated(&self, offset: usize, limit: usize) -> Result<Vec<Session>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT s.id, s.host_id, COALESCE(h.hostname, '?'), s.started_at, s.ended_at
+             FROM sessions s
+             LEFT JOIN hosts h ON s.host_id = h.id
+             ORDER BY s.started_at DESC
+             LIMIT ?1 OFFSET ?2",
+        )?;
+
+        let sessions = stmt
+            .query_map(rusqlite::params![limit as i64, offset as i64], |row| {
+                Ok(Session {
+                    id: SessionId::new(row.get(0)?),
+                    host_id: HostId::new(row.get(1)?),
+                    hostname: row.get(2)?,
+                    started_at: row
+                        .get::<_, String>(3)?
+                        .parse()
+                        .unwrap_or_else(|_| Utc::now()),
+                    ended_at: row
+                        .get::<_, Option<String>>(4)?
                         .and_then(|s| s.parse().ok()),
                 })
             })?
