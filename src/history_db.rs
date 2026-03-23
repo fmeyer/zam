@@ -351,6 +351,14 @@ impl HistoryManagerDb {
             .get_sessions_for_host(crate::types::HostId::new(host_id))
     }
 
+    /// Get all commands for a specific session
+    pub fn get_commands_for_session(
+        &self,
+        session_id: &str,
+    ) -> Result<Vec<crate::database::CommandEntry>> {
+        self.db.get_commands_for_session(session_id)
+    }
+
     /// Clear all data (use with caution!)
     pub fn clear(&self) -> Result<()> {
         self.db.clear()

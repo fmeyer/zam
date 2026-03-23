@@ -133,7 +133,23 @@ pub fn handle_sessions(app: &mut CliApp, args: &SessionsArgs) -> Result<()> {
         }
     };
 
-    if let Some(host_id) = args.host_id {
+    if let Some(ref session_id) = args.show_commands {
+        let commands = mgr.get_commands_for_session(session_id)?;
+        if commands.is_empty() {
+            println!("No commands found for session {}", session_id);
+        } else {
+            println!("=== Commands in session {} ===\n", session_id);
+            for cmd in &commands {
+                println!(
+                    "{} {} {}",
+                    cmd.timestamp.format("%Y-%m-%d %H:%M:%S"),
+                    cmd.directory,
+                    cmd.command
+                );
+            }
+            println!("\n{} commands", commands.len());
+        }
+    } else if let Some(host_id) = args.host_id {
         let sessions = mgr.get_sessions_for_host(host_id)?;
 
         let filtered: Vec<_> = if args.active {
@@ -148,7 +164,7 @@ pub fn handle_sessions(app: &mut CliApp, args: &SessionsArgs) -> Result<()> {
         println!("=== Sessions ===\n");
         for session in filtered {
             println!("ID: {}", session.id);
-            println!("Host ID: {}", session.host_id);
+            println!("Host: {} ({})", session.hostname, session.host_id);
             println!(
                 "Started: {}",
                 session.started_at.format("%Y-%m-%d %H:%M:%S")
@@ -161,7 +177,7 @@ pub fn handle_sessions(app: &mut CliApp, args: &SessionsArgs) -> Result<()> {
             println!();
         }
     } else {
-        println!("Must specify --host-id");
+        println!("Must specify --host-id or --show-commands <SESSION_ID>");
     }
 
     Ok(())
