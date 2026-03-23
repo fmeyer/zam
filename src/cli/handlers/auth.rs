@@ -67,10 +67,7 @@ fn handle_auth_load(app: &mut CliApp, args: &AuthArgs, item: &str) -> Result<()>
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(Error::custom(format!(
-            "op failed: {}",
-            stderr.trim()
-        )));
+        return Err(Error::custom(format!("op failed: {}", stderr.trim())));
     }
 
     let op_item: OpItem = serde_json::from_slice(&output.stdout)
@@ -139,10 +136,7 @@ fn handle_auth_list(app: &mut CliApp, args: &AuthArgs) -> Result<()> {
     } else {
         eprintln!("Secrets loaded in session {}:", session_id);
         for s in &secrets {
-            eprintln!(
-                "  {} (from {})",
-                s.key_name, s.source
-            );
+            eprintln!("  {} (from {})", s.key_name, s.source);
         }
     }
 
