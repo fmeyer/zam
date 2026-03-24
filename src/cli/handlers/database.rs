@@ -201,3 +201,32 @@ pub fn handle_end_session(app: &mut CliApp, args: &EndSessionArgs) -> Result<()>
 
     Ok(())
 }
+
+pub fn handle_vacuum(app: &mut CliApp, args: &VacuumArgs) -> Result<()> {
+    let mgr = match &mut app.backend {
+        HistoryBackend::Database(mgr) => mgr,
+        HistoryBackend::File(_) => {
+            return Err(Error::custom(
+                "Vacuum requires database backend. Remove --use-file flag to use the default database backend.",
+            ));
+        }
+    };
+
+    if let Some(max_entries) = args.max_entries {
+        let pruned = mgr.db.prune_old_commands(max_entries)?;
+        if !app.quiet {
+            println!(
+                "Pruned {} old commands (keeping newest {})",
+                pruned, max_entries
+            );
+        }
+    }
+
+    mgr.db.vacuum()?;
+
+    if !app.quiet {
+        println!("Database vacuumed successfully");
+    }
+
+    Ok(())
+}
