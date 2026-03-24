@@ -92,6 +92,8 @@ pub enum Commands {
     EndSession(EndSessionArgs),
     /// Load secrets from 1Password into shell environment
     Auth(AuthArgs),
+    /// Vacuum the database and optionally prune old commands
+    Vacuum(VacuumArgs),
     /// Interactive entity browser (database only)
     Tui,
 }
@@ -186,6 +188,7 @@ impl CliApp {
             Commands::Alias(args) => handle_alias(self, args),
             Commands::EndSession(args) => handle_end_session(self, args),
             Commands::Auth(args) => handle_auth(self, args),
+            Commands::Vacuum(args) => handle_vacuum(self, args),
             Commands::Tui => handle_tui(self),
         }
     }
