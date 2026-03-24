@@ -30,13 +30,13 @@ fn generate_zsh_integration() -> String {
 # One session per shell instance
 export ZAM_SESSION_ID="zsh-$$-$(date +%s)"
 
-# Log only successful commands
+# Log all commands with their exit code
 _zam_last_cmd=""
 _zam_preexec() { _zam_last_cmd="$1"; }
 _zam_precmd() {
     local rc=$?
-    if [[ $rc -eq 0 && -n "$_zam_last_cmd" ]]; then
-        zam log "$_zam_last_cmd" --session-id "$ZAM_SESSION_ID"
+    if [[ -n "$_zam_last_cmd" ]]; then
+        zam log "$_zam_last_cmd" -E "$rc" --session-id "$ZAM_SESSION_ID"
     fi
     _zam_last_cmd=""
 }

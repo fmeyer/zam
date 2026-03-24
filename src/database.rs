@@ -228,6 +228,15 @@ impl Database {
             [],
         )?;
 
+        // Preferences table - key/value store for TUI settings
+        self.conn.execute(
+            "CREATE TABLE IF NOT EXISTS preferences (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            )",
+            [],
+        )?;
+
         Ok(())
     }
 
@@ -609,17 +618,45 @@ impl Database {
         offset: usize,
         limit: usize,
     ) -> Result<Vec<CommandEntry>> {
-        let mut stmt = self.conn.prepare(
+        self.get_unique_commands_filtered(offset, limit, None)
+    }
+
+    /// Get unique commands with optional filter, paginated
+    pub fn get_unique_commands_filtered(
+        &self,
+        offset: usize,
+        limit: usize,
+        filter: Option<&str>,
+    ) -> Result<Vec<CommandEntry>> {
+        let (where_clause, params): (&str, Vec<Box<dyn rusqlite::types::ToSql>>) = match filter {
+            Some(f) if !f.is_empty() => (
+                "WHERE directory != '<imported>' AND command LIKE ?3",
+                vec![
+                    Box::new(limit as i64),
+                    Box::new(offset as i64),
+                    Box::new(format!("%{}%", f)),
+                ],
+            ),
+            _ => (
+                "WHERE directory != '<imported>'",
+                vec![Box::new(limit as i64), Box::new(offset as i64)],
+            ),
+        };
+
+        let sql = format!(
             "SELECT MAX(id), session_id, command, MAX(timestamp) as ts, directory, redacted, exit_code
              FROM commands
-             WHERE directory != '<imported>'
+             {where_clause}
              GROUP BY command, directory
              ORDER BY ts DESC
-             LIMIT ?1 OFFSET ?2",
-        )?;
+             LIMIT ?1 OFFSET ?2"
+        );
+
+        let mut stmt = self.conn.prepare(&sql)?;
+        let params_ref: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|p| p.as_ref()).collect();
 
         let commands = stmt
-            .query_map(rusqlite::params![limit as i64, offset as i64], |row| {
+            .query_map(params_ref.as_slice(), |row| {
                 Ok(CommandEntry {
                     id: row.get(0)?,
                     session_id: row.get(1)?,
@@ -640,15 +677,29 @@ impl Database {
 
     /// Count unique (command, directory) pairs excluding imported
     pub fn count_unique_commands(&self) -> Result<usize> {
-        let count: i64 = self.conn.query_row(
+        self.count_unique_commands_filtered(None)
+    }
+
+    /// Count unique commands with optional filter
+    pub fn count_unique_commands_filtered(&self, filter: Option<&str>) -> Result<usize> {
+        let (where_extra, params): (&str, Vec<Box<dyn rusqlite::types::ToSql>>) = match filter {
+            Some(f) if !f.is_empty() => (
+                " AND command LIKE ?1",
+                vec![Box::new(format!("%{}%", f))],
+            ),
+            _ => ("", vec![]),
+        };
+
+        let sql = format!(
             "SELECT COUNT(*) FROM (
                 SELECT 1 FROM commands
-                WHERE directory != '<imported>'
+                WHERE directory != '<imported>'{where_extra}
                 GROUP BY command, directory
-            )",
-            [],
-            |row| row.get(0),
-        )?;
+            )"
+        );
+
+        let params_ref: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|p| p.as_ref()).collect();
+        let count: i64 = self.conn.query_row(&sql, params_ref.as_slice(), |row| row.get(0))?;
         Ok(count as usize)
     }
 
@@ -1063,24 +1114,71 @@ impl Database {
 
     /// Count total sessions
     pub fn count_sessions(&self) -> Result<usize> {
-        let count: i64 = self
-            .conn
-            .query_row("SELECT COUNT(*) FROM sessions", [], |row| row.get(0))?;
+        self.count_sessions_filtered(None)
+    }
+
+    /// Count sessions with optional filter on session id or hostname
+    pub fn count_sessions_filtered(&self, filter: Option<&str>) -> Result<usize> {
+        let (where_clause, params): (&str, Vec<Box<dyn rusqlite::types::ToSql>>) = match filter {
+            Some(f) if !f.is_empty() => (
+                "WHERE s.id LIKE ?1 OR h.hostname LIKE ?1",
+                vec![Box::new(format!("%{}%", f))],
+            ),
+            _ => ("", vec![]),
+        };
+
+        let sql = format!(
+            "SELECT COUNT(*) FROM sessions s
+             LEFT JOIN hosts h ON s.host_id = h.id
+             {where_clause}"
+        );
+
+        let params_ref: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|p| p.as_ref()).collect();
+        let count: i64 = self.conn.query_row(&sql, params_ref.as_slice(), |row| row.get(0))?;
         Ok(count as usize)
     }
 
     /// Get sessions with pagination
     pub fn get_sessions_paginated(&self, offset: usize, limit: usize) -> Result<Vec<Session>> {
-        let mut stmt = self.conn.prepare(
+        self.get_sessions_filtered(offset, limit, None)
+    }
+
+    /// Get sessions with optional filter, paginated
+    pub fn get_sessions_filtered(
+        &self,
+        offset: usize,
+        limit: usize,
+        filter: Option<&str>,
+    ) -> Result<Vec<Session>> {
+        let (where_clause, params): (&str, Vec<Box<dyn rusqlite::types::ToSql>>) = match filter {
+            Some(f) if !f.is_empty() => (
+                "WHERE s.id LIKE ?3 OR h.hostname LIKE ?3",
+                vec![
+                    Box::new(limit as i64),
+                    Box::new(offset as i64),
+                    Box::new(format!("%{}%", f)),
+                ],
+            ),
+            _ => (
+                "",
+                vec![Box::new(limit as i64), Box::new(offset as i64)],
+            ),
+        };
+
+        let sql = format!(
             "SELECT s.id, s.host_id, COALESCE(h.hostname, '?'), s.started_at, s.ended_at
              FROM sessions s
              LEFT JOIN hosts h ON s.host_id = h.id
+             {where_clause}
              ORDER BY s.started_at DESC
-             LIMIT ?1 OFFSET ?2",
-        )?;
+             LIMIT ?1 OFFSET ?2"
+        );
+
+        let mut stmt = self.conn.prepare(&sql)?;
+        let params_ref: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|p| p.as_ref()).collect();
 
         let sessions = stmt
-            .query_map(rusqlite::params![limit as i64, offset as i64], |row| {
+            .query_map(params_ref.as_slice(), |row| {
                 Ok(Session {
                     id: SessionId::new(row.get(0)?),
                     host_id: HostId::new(row.get(1)?),
@@ -1201,6 +1299,34 @@ impl Database {
         )?;
 
         Ok(key_names)
+    }
+
+    /// Get a preference value by key
+    pub fn get_preference(&self, key: &str) -> Result<Option<String>> {
+        let val = self
+            .conn
+            .query_row(
+                "SELECT value FROM preferences WHERE key = ?1",
+                rusqlite::params![key],
+                |row| row.get(0),
+            )
+            .optional()?;
+        Ok(val)
+    }
+
+    /// Set a preference value
+    pub fn set_preference(&self, key: &str, value: &str) -> Result<()> {
+        self.conn.execute(
+            "INSERT INTO preferences (key, value) VALUES (?1, ?2)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            rusqlite::params![key, value],
+        )?;
+        Ok(())
+    }
+
+    /// Get a boolean preference (defaults to false if missing)
+    pub fn get_bool_preference(&self, key: &str) -> Result<bool> {
+        Ok(self.get_preference(key)?.map(|v| v == "true").unwrap_or(false))
     }
 }
 

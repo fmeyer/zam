@@ -21,6 +21,10 @@ pub struct LogArgs {
     #[arg(long)]
     pub no_redact: bool,
 
+    /// Exit code of the command (optional)
+    #[arg(short = 'E', long)]
+    pub exit_code: Option<i32>,
+
     /// Use a static session ID (e.g. for non-interactive tools like Claude Code)
     #[arg(short = 'S', long)]
     pub session_id: Option<String>,

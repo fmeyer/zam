@@ -110,16 +110,18 @@ enum Tab {
     Hosts,
     Sessions,
     Tokens,
+    Help,
 }
 
-const TABS: [Tab; 7] = [
+const TABS: [Tab; 8] = [
+    Tab::Commands,
     Tab::Local,
     Tab::Sessions,
     Tab::Frequent,
-    Tab::Commands,
     Tab::Aliases,
     Tab::Hosts,
     Tab::Tokens,
+    Tab::Help,
 ];
 
 impl Tab {
@@ -132,6 +134,7 @@ impl Tab {
             Tab::Hosts => "Hosts",
             Tab::Sessions => "Sessions",
             Tab::Tokens => "Tokens",
+            Tab::Help => "?",
         }
     }
 
@@ -145,7 +148,6 @@ enum Mode {
     Filter,
     Confirm,
     EditAlias,
-    Help,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -202,6 +204,7 @@ struct AppTUI<'a> {
     // Status
     status: Option<String>,
     show_values: bool,
+    relative_time: bool,
     running: bool,
     selected_command: Option<String>,
 }
@@ -211,7 +214,7 @@ impl<'a> AppTUI<'a> {
         let mut app = Self {
             db,
             cwd,
-            tab: Tab::Local,
+            tab: Tab::Commands,
             mode: Mode::Filter,
             theme: Theme::detect(),
             commands: Vec::new(),
@@ -235,6 +238,7 @@ impl<'a> AppTUI<'a> {
             edit_alias_name: String::new(),
             status: None,
             show_values: false,
+            relative_time: db.get_bool_preference("relative_time").unwrap_or(false),
             running: true,
             selected_command: None,
         };
@@ -244,19 +248,28 @@ impl<'a> AppTUI<'a> {
 
     fn load_tab(&mut self) -> Result<()> {
         self.table_state = TableState::default();
+        let filter = if self.filter.is_empty() {
+            None
+        } else {
+            Some(self.filter.as_str())
+        };
         match self.tab {
             Tab::Commands => {
-                self.total_paged_rows = self.db.count_unique_commands()?;
-                self.commands = self
-                    .db
-                    .get_unique_commands_paginated(self.page * self.page_size, self.page_size)?;
+                self.total_paged_rows = self.db.count_unique_commands_filtered(filter)?;
+                self.commands = self.db.get_unique_commands_filtered(
+                    self.page * self.page_size,
+                    self.page_size,
+                    filter,
+                )?;
                 self.row_count = self.commands.len();
             }
             Tab::Sessions => {
-                self.total_paged_rows = self.db.count_sessions()?;
-                self.sessions = self
-                    .db
-                    .get_sessions_paginated(self.page * self.page_size, self.page_size)?;
+                self.total_paged_rows = self.db.count_sessions_filtered(filter)?;
+                self.sessions = self.db.get_sessions_filtered(
+                    self.page * self.page_size,
+                    self.page_size,
+                    filter,
+                )?;
                 self.row_count = self.sessions.len();
             }
             Tab::Local => {
@@ -284,6 +297,9 @@ impl<'a> AppTUI<'a> {
                 self.tokens = self.db.get_all_tokens()?;
                 self.row_count = self.tokens.len();
             }
+            Tab::Help => {
+                self.row_count = 0;
+            }
         }
         if self.row_count > 0 {
             self.table_state.select(Some(0));
@@ -292,14 +308,22 @@ impl<'a> AppTUI<'a> {
     }
 
     /// Map the selected table row back to the original data index,
-    /// accounting for filter. The table only shows filtered rows, so
-    /// row N in the table corresponds to the Nth matching item.
+    /// accounting for filter. For DB-filtered tabs (Commands, Sessions)
+    /// the loaded data is already filtered, so index maps directly.
+    /// For other tabs, client-side filter maps the Nth visible row to its data index.
     fn resolve_selected(&self) -> Option<usize> {
         let sel = self.table_state.selected()?;
+        // DB-filtered tabs: data is already filtered
+        if matches!(self.tab, Tab::Commands) {
+            return Some(sel);
+        }
+        if matches!(self.tab, Tab::Sessions) && self.session_detail_id.is_none() {
+            return Some(sel);
+        }
         if self.filter.is_empty() {
             return Some(sel);
         }
-        // Find the sel-th item that matches the filter
+        // Client-side filtered tabs: find the sel-th matching item
         let matching_indices: Vec<usize> = match self.tab {
             Tab::Local => self
                 .local_commands
@@ -313,13 +337,6 @@ impl<'a> AppTUI<'a> {
                 .iter()
                 .enumerate()
                 .filter(|(_, f)| self.matches_filter(&f.command))
-                .map(|(i, _)| i)
-                .collect(),
-            Tab::Commands => self
-                .commands
-                .iter()
-                .enumerate()
-                .filter(|(_, c)| self.matches_filter(&c.command))
                 .map(|(i, _)| i)
                 .collect(),
             Tab::Aliases => self
@@ -336,20 +353,11 @@ impl<'a> AppTUI<'a> {
                 .filter(|(_, h)| self.matches_filter(&h.hostname))
                 .map(|(i, _)| i)
                 .collect(),
-            Tab::Sessions if self.session_detail_id.is_some() => self
+            Tab::Sessions => self
                 .session_commands
                 .iter()
                 .enumerate()
                 .filter(|(_, c)| self.matches_filter(&c.command))
-                .map(|(i, _)| i)
-                .collect(),
-            Tab::Sessions => self
-                .sessions
-                .iter()
-                .enumerate()
-                .filter(|(_, s)| {
-                    self.matches_filter(s.id.as_ref()) || self.matches_filter(&s.hostname)
-                })
                 .map(|(i, _)| i)
                 .collect(),
             Tab::Tokens => self
@@ -361,12 +369,21 @@ impl<'a> AppTUI<'a> {
                 })
                 .map(|(i, _)| i)
                 .collect(),
+            _ => return Some(sel),
         };
         matching_indices.get(sel).copied()
     }
 
     /// Count of rows currently visible (after filtering).
+    /// For DB-filtered tabs, row_count already reflects the filter.
     fn filtered_row_count(&self) -> usize {
+        // DB-filtered tabs
+        if matches!(self.tab, Tab::Commands) {
+            return self.row_count;
+        }
+        if matches!(self.tab, Tab::Sessions) && self.session_detail_id.is_none() {
+            return self.row_count;
+        }
         if self.filter.is_empty() {
             return self.row_count;
         }
@@ -381,11 +398,6 @@ impl<'a> AppTUI<'a> {
                 .iter()
                 .filter(|f| self.matches_filter(&f.command))
                 .count(),
-            Tab::Commands => self
-                .commands
-                .iter()
-                .filter(|c| self.matches_filter(&c.command))
-                .count(),
             Tab::Aliases => self
                 .aliases
                 .iter()
@@ -396,15 +408,10 @@ impl<'a> AppTUI<'a> {
                 .iter()
                 .filter(|h| self.matches_filter(&h.hostname))
                 .count(),
-            Tab::Sessions if self.session_detail_id.is_some() => self
+            Tab::Sessions => self
                 .session_commands
                 .iter()
                 .filter(|c| self.matches_filter(&c.command))
-                .count(),
-            Tab::Sessions => self
-                .sessions
-                .iter()
-                .filter(|s| self.matches_filter(s.id.as_ref()) || self.matches_filter(&s.hostname))
                 .count(),
             Tab::Tokens => self
                 .tokens
@@ -413,6 +420,9 @@ impl<'a> AppTUI<'a> {
                     self.matches_filter(&t.token_type) || self.matches_filter(&t.placeholder)
                 })
                 .count(),
+            // Commands tab is DB-filtered, handled by early return above
+            Tab::Commands => self.row_count,
+            Tab::Help => 0,
         }
     }
 
@@ -518,7 +528,7 @@ impl<'a> AppTUI<'a> {
                     return;
                 }
             }
-            Tab::Frequent => return,
+            Tab::Frequent | Tab::Help => return,
         };
         self.confirm_msg = msg;
         self.mode = Mode::Confirm;
@@ -566,7 +576,7 @@ impl<'a> AppTUI<'a> {
                     self.status = Some("Token deleted".into());
                 }
             }
-            Tab::Frequent => {}
+            Tab::Frequent | Tab::Help => {}
         }
         self.mode = Mode::Filter;
         self.load_tab()
@@ -653,6 +663,22 @@ impl<'a> AppTUI<'a> {
         self.load_tab()
     }
 
+    fn jump_to_session_current(&mut self) -> Result<()> {
+        self.jump_to_tab(Tab::Sessions.index())?;
+        // Auto-drill into the current session if ZAM_SESSION_ID is set
+        if let Ok(sid) = std::env::var("ZAM_SESSION_ID") {
+            self.session_commands = self.db.get_commands_for_session(&sid)?;
+            self.row_count = self.session_commands.len();
+            self.session_detail_id = Some(sid);
+            self.filter.clear();
+            self.table_state = TableState::default();
+            if self.row_count > 0 {
+                self.table_state.select(Some(0));
+            }
+        }
+        Ok(())
+    }
+
     fn jump_to_tab(&mut self, idx: usize) -> Result<()> {
         if idx < TABS.len() {
             self.tab = TABS[idx];
@@ -668,9 +694,9 @@ impl<'a> AppTUI<'a> {
     fn handle_key(&mut self, key: KeyEvent) -> Result<()> {
         // Global modifier shortcuts work in any mode except Confirm and EditAlias
         if self.mode != Mode::Confirm && self.mode != Mode::EditAlias {
-            // Alt+1..7 jump to tab by number
+            // Alt+1..8 jump to tab by number
             if key.modifiers.contains(KeyModifiers::ALT)
-                && let KeyCode::Char(c @ '1'..='7') = key.code
+                && let KeyCode::Char(c @ '1'..='8') = key.code
             {
                 self.jump_to_tab((c as usize) - ('1' as usize))?;
                 return Ok(());
@@ -691,12 +717,25 @@ impl<'a> AppTUI<'a> {
                         self.start_edit_alias();
                         return Ok(());
                     }
+                    KeyCode::Char('t') => {
+                        self.relative_time = !self.relative_time;
+                        let _ = self.db.set_preference("relative_time", if self.relative_time { "true" } else { "false" });
+                        return Ok(());
+                    }
                     KeyCode::Char('v') if self.tab == Tab::Tokens => {
                         self.show_values = !self.show_values;
                         return Ok(());
                     }
+                    KeyCode::Char('l') => {
+                        self.jump_to_tab(Tab::Local.index())?;
+                        return Ok(());
+                    }
+                    KeyCode::Char('s') => {
+                        self.jump_to_session_current()?;
+                        return Ok(());
+                    }
                     KeyCode::Char('h') => {
-                        self.mode = Mode::Help;
+                        self.jump_to_tab(Tab::Commands.index())?;
                         return Ok(());
                     }
                     _ => {}
@@ -705,9 +744,6 @@ impl<'a> AppTUI<'a> {
         }
 
         match self.mode {
-            Mode::Help => {
-                self.mode = Mode::Filter;
-            }
             Mode::Confirm => match key.code {
                 KeyCode::Char('y') | KeyCode::Char('Y') => self.confirm_delete()?,
                 _ => self.mode = Mode::Filter,
@@ -754,16 +790,14 @@ impl<'a> AppTUI<'a> {
                         self.session_detail_id = None;
                         self.session_commands.clear();
                         self.filter.clear();
-                        self.row_count = self.sessions.len();
-                        self.table_state = TableState::default();
-                        if self.row_count > 0 {
-                            self.table_state.select(Some(0));
-                        }
+                        self.page = 0;
+                        self.load_tab()?;
                     } else if self.filter.is_empty() {
                         self.running = false;
                     } else {
                         self.filter.clear();
-                        self.table_state.select(Some(0));
+                        self.page = 0;
+                        self.load_tab()?;
                     }
                 }
                 KeyCode::Enter if self.tab == Tab::Frequent => {
@@ -797,27 +831,33 @@ impl<'a> AppTUI<'a> {
                         }
                     }
                 }
+                KeyCode::Enter if self.tab == Tab::Commands => {
+                    if let Some(idx) = self.resolve_selected()
+                        && let Some(cmd) = self.commands.get(idx)
+                    {
+                        self.selected_command = Some(cmd.command.clone());
+                        self.running = false;
+                    }
+                }
                 KeyCode::Enter => {}
                 KeyCode::Backspace => {
                     self.filter.pop();
-                    self.table_state.select(Some(0));
+                    self.page = 0;
+                    self.load_tab()?;
                 }
                 KeyCode::Up => self.select_prev(),
                 KeyCode::Down => self.select_next(),
+                KeyCode::Left if self.is_paginated_tab() => self.prev_page()?,
+                KeyCode::Right if self.is_paginated_tab() => self.next_page()?,
                 KeyCode::Left => self.prev_tab()?,
                 KeyCode::Right => self.next_tab()?,
                 KeyCode::Tab => self.next_tab()?,
                 KeyCode::BackTab => self.prev_tab()?,
                 KeyCode::Delete => self.request_delete(),
-                KeyCode::Char('[') if self.is_paginated_tab() => {
-                    self.prev_page()?;
-                }
-                KeyCode::Char(']') if self.is_paginated_tab() => {
-                    self.next_page()?;
-                }
                 KeyCode::Char(c) => {
                     self.filter.push(c);
-                    self.table_state.select(Some(0));
+                    self.page = 0;
+                    self.load_tab()?;
                 }
                 _ => {}
             },
@@ -826,23 +866,27 @@ impl<'a> AppTUI<'a> {
     }
 
     fn render(&mut self, frame: &mut Frame) {
+        let outer = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Length(1), Constraint::Min(1)])
+            .split(frame.area());
+
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Length(3), // Tab bar
                 Constraint::Min(5),    // Table
+                Constraint::Length(1), // Tab bar
                 Constraint::Length(1), // Status
             ])
-            .split(frame.area());
+            .split(outer[1]);
 
-        self.render_tabs(frame, chunks[0]);
-        self.render_table(frame, chunks[1]);
+        self.render_table(frame, chunks[0]);
+        self.render_tabs(frame, chunks[1]);
         self.render_status(frame, chunks[2]);
 
         match self.mode {
             Mode::Confirm => self.render_confirm(frame, frame.area()),
             Mode::EditAlias => self.render_edit_alias(frame, frame.area()),
-            Mode::Help => self.render_help(frame, frame.area()),
             _ => {}
         }
     }
@@ -861,7 +905,6 @@ impl<'a> AppTUI<'a> {
             .collect();
 
         let tabs = Tabs::new(titles)
-            .block(Block::default().borders(Borders::ALL).title("zam"))
             .select(self.tab.index())
             .style(Style::default().fg(self.theme.tab_text))
             .highlight_style(
@@ -869,7 +912,7 @@ impl<'a> AppTUI<'a> {
                     .fg(self.theme.tab_highlight)
                     .add_modifier(Modifier::BOLD),
             )
-            .divider("|");
+            .divider("│");
 
         frame.render_widget(tabs, area);
     }
@@ -886,6 +929,7 @@ impl<'a> AppTUI<'a> {
             }
             Tab::Sessions => self.render_sessions(frame, area),
             Tab::Tokens => self.render_tokens(frame, area),
+            Tab::Help => self.render_help_tab(frame, area),
         }
     }
 
@@ -894,6 +938,36 @@ impl<'a> AppTUI<'a> {
             return true;
         }
         text.to_lowercase().contains(&self.filter.to_lowercase())
+    }
+
+    fn fmt_time(&self, dt: chrono::DateTime<chrono::Utc>) -> String {
+        if self.relative_time {
+            let now = chrono::Utc::now();
+            let dur = now.signed_duration_since(dt);
+            if dur.num_seconds() < 60 {
+                "just now".into()
+            } else if dur.num_minutes() < 60 {
+                format!("{}m ago", dur.num_minutes())
+            } else if dur.num_hours() < 24 {
+                format!("{}h ago", dur.num_hours())
+            } else if dur.num_days() < 30 {
+                format!("{}d ago", dur.num_days())
+            } else if dur.num_days() < 365 {
+                format!("{}mo ago", dur.num_days() / 30)
+            } else {
+                format!("{}y ago", dur.num_days() / 365)
+            }
+        } else {
+            dt.format("%Y-%m-%d %H:%M").to_string()
+        }
+    }
+
+    fn fmt_date(&self, dt: chrono::DateTime<chrono::Utc>) -> String {
+        if self.relative_time {
+            self.fmt_time(dt)
+        } else {
+            dt.format("%Y-%m-%d").to_string()
+        }
     }
 
     fn render_frequent(&mut self, frame: &mut Frame, area: Rect) {
@@ -926,14 +1000,13 @@ impl<'a> AppTUI<'a> {
             ],
         )
         .header(header)
-        .block(Block::default().borders(Borders::ALL).title("Top 50"))
         .row_highlight_style(Style::default().bg(self.theme.row_highlight));
 
         frame.render_stateful_widget(table, area, &mut self.table_state);
     }
 
     fn render_commands(&mut self, frame: &mut Frame, area: Rect) {
-        let header = Row::new(vec!["ID", "Timestamp", "Command", "Directory", "R"]).style(
+        let header = Row::new(vec!["Timestamp", "Command", "Directory"]).style(
             Style::default()
                 .fg(self.theme.header)
                 .add_modifier(Modifier::BOLD),
@@ -942,15 +1015,11 @@ impl<'a> AppTUI<'a> {
         let rows: Vec<Row> = self
             .commands
             .iter()
-            .filter(|c| self.matches_filter(&c.command))
             .map(|c| {
-                let r = if c.redacted { "Y" } else { "" };
                 Row::new(vec![
-                    Cell::from(c.id.to_string()),
-                    Cell::from(c.timestamp.format("%Y-%m-%d %H:%M").to_string()),
-                    Cell::from(c.command.chars().take(60).collect::<String>()),
-                    Cell::from(truncate(&c.directory, 25)),
-                    Cell::from(r),
+                    Cell::from(self.fmt_time(c.timestamp)),
+                    Cell::from(c.command.as_str()),
+                    Cell::from(truncate_left(&shorten_dir(&c.directory), 25)),
                 ])
             })
             .collect();
@@ -958,30 +1027,19 @@ impl<'a> AppTUI<'a> {
         let table = Table::new(
             rows,
             [
-                Constraint::Length(6),
                 Constraint::Length(16),
                 Constraint::Min(20),
                 Constraint::Length(25),
-                Constraint::Length(1),
             ],
-        );
-        let title = format!(
-            "History (page {}/{}, {} total)",
-            self.page + 1,
-            self.total_pages(),
-            self.total_paged_rows,
-        );
-
-        let table = table
-            .header(header)
-            .block(Block::default().borders(Borders::ALL).title(title))
-            .row_highlight_style(Style::default().bg(self.theme.row_highlight));
+        )
+        .header(header)
+        .row_highlight_style(Style::default().bg(self.theme.row_highlight));
 
         frame.render_stateful_widget(table, area, &mut self.table_state);
     }
 
     fn render_local(&mut self, frame: &mut Frame, area: Rect) {
-        let header = Row::new(vec!["ID", "Timestamp", "Command", "R"]).style(
+        let header = Row::new(vec!["Timestamp", "Command"]).style(
             Style::default()
                 .fg(self.theme.header)
                 .add_modifier(Modifier::BOLD),
@@ -992,28 +1050,21 @@ impl<'a> AppTUI<'a> {
             .iter()
             .filter(|c| self.matches_filter(&c.command))
             .map(|c| {
-                let r = if c.redacted { "Y" } else { "" };
                 Row::new(vec![
-                    Cell::from(c.id.to_string()),
-                    Cell::from(c.timestamp.format("%Y-%m-%d %H:%M").to_string()),
-                    Cell::from(c.command.chars().take(80).collect::<String>()),
-                    Cell::from(r),
+                    Cell::from(self.fmt_time(c.timestamp)),
+                    Cell::from(c.command.as_str()),
                 ])
             })
             .collect();
 
-        let title = format!("Local — {}", self.cwd);
         let table = Table::new(
             rows,
             [
-                Constraint::Length(6),
                 Constraint::Length(16),
                 Constraint::Min(20),
-                Constraint::Length(1),
             ],
         )
         .header(header)
-        .block(Block::default().borders(Borders::ALL).title(title))
         .row_highlight_style(Style::default().bg(self.theme.row_highlight));
 
         frame.render_stateful_widget(table, area, &mut self.table_state);
@@ -1035,7 +1086,7 @@ impl<'a> AppTUI<'a> {
                     Cell::from(a.alias.as_str()),
                     Cell::from(truncate(&a.command, 40)),
                     Cell::from(truncate(&a.description, 30)),
-                    Cell::from(a.date_updated.format("%Y-%m-%d").to_string()),
+                    Cell::from(self.fmt_date(a.date_updated)),
                 ])
             })
             .collect();
@@ -1050,7 +1101,6 @@ impl<'a> AppTUI<'a> {
             ],
         )
         .header(header)
-        .block(Block::default().borders(Borders::ALL).title("Aliases"))
         .row_highlight_style(Style::default().bg(self.theme.row_highlight));
 
         frame.render_stateful_widget(table, area, &mut self.table_state);
@@ -1071,7 +1121,7 @@ impl<'a> AppTUI<'a> {
                 Row::new(vec![
                     Cell::from(h.id.to_string()),
                     Cell::from(h.hostname.as_str()),
-                    Cell::from(h.created_at.format("%Y-%m-%d %H:%M").to_string()),
+                    Cell::from(self.fmt_time(h.created_at)),
                 ])
             })
             .collect();
@@ -1085,7 +1135,6 @@ impl<'a> AppTUI<'a> {
             ],
         )
         .header(header)
-        .block(Block::default().borders(Borders::ALL).title("Hosts"))
         .row_highlight_style(Style::default().bg(self.theme.row_highlight));
 
         frame.render_stateful_widget(table, area, &mut self.table_state);
@@ -1101,11 +1150,10 @@ impl<'a> AppTUI<'a> {
         let rows: Vec<Row> = self
             .sessions
             .iter()
-            .filter(|s| self.matches_filter(s.id.as_ref()) || self.matches_filter(&s.hostname))
             .map(|s| {
                 let status = s
                     .ended_at
-                    .map(|e| e.format("%Y-%m-%d %H:%M").to_string())
+                    .map(|e| self.fmt_time(e))
                     .unwrap_or_else(|| "active".into());
                 let cmd_count = self
                     .db
@@ -1116,7 +1164,7 @@ impl<'a> AppTUI<'a> {
                 Row::new(vec![
                     Cell::from(id_display),
                     Cell::from(s.hostname.as_str()),
-                    Cell::from(s.started_at.format("%Y-%m-%d %H:%M").to_string()),
+                    Cell::from(self.fmt_time(s.started_at)),
                     Cell::from(status),
                 ])
             })
@@ -1132,19 +1180,12 @@ impl<'a> AppTUI<'a> {
             ],
         )
         .header(header)
-        .block(Block::default().borders(Borders::ALL).title(format!(
-            "Sessions (page {}/{}, {} total) — Enter=view commands",
-            self.page + 1,
-            self.total_pages(),
-            self.total_paged_rows,
-        )))
         .row_highlight_style(Style::default().bg(self.theme.row_highlight));
 
         frame.render_stateful_widget(table, area, &mut self.table_state);
     }
 
     fn render_session_commands(&mut self, frame: &mut Frame, area: Rect) {
-        let sid = self.session_detail_id.as_deref().unwrap_or("");
         let header = Row::new(vec!["ID", "Timestamp", "Command", "Directory", "R"]).style(
             Style::default()
                 .fg(self.theme.header)
@@ -1159,19 +1200,14 @@ impl<'a> AppTUI<'a> {
                 let r = if c.redacted { "Y" } else { "" };
                 Row::new(vec![
                     Cell::from(c.id.to_string()),
-                    Cell::from(c.timestamp.format("%Y-%m-%d %H:%M").to_string()),
+                    Cell::from(self.fmt_time(c.timestamp)),
                     Cell::from(c.command.chars().take(60).collect::<String>()),
-                    Cell::from(truncate(&c.directory, 25)),
+                    Cell::from(truncate_left(&shorten_dir(&c.directory), 25)),
                     Cell::from(r),
                 ])
             })
             .collect();
 
-        let title = format!(
-            "Session {} ({} commands) — Esc to go back",
-            truncate(sid, 20),
-            self.session_commands.len(),
-        );
         let table = Table::new(
             rows,
             [
@@ -1183,18 +1219,12 @@ impl<'a> AppTUI<'a> {
             ],
         )
         .header(header)
-        .block(Block::default().borders(Borders::ALL).title(title))
         .row_highlight_style(Style::default().bg(self.theme.row_highlight));
 
         frame.render_stateful_widget(table, area, &mut self.table_state);
     }
 
     fn render_tokens(&mut self, frame: &mut Frame, area: Rect) {
-        let title = if self.show_values {
-            "Tokens (^V=hide values)"
-        } else {
-            "Tokens (^V=show values)"
-        };
         let header = Row::new(vec!["ID", "Cmd", "Type", "Placeholder", "Value", "Created"]).style(
             Style::default()
                 .fg(self.theme.header)
@@ -1217,7 +1247,7 @@ impl<'a> AppTUI<'a> {
                     Cell::from(t.token_type.as_str()),
                     Cell::from(truncate(&t.placeholder, 20)),
                     Cell::from(val),
-                    Cell::from(t.created_at.format("%Y-%m-%d").to_string()),
+                    Cell::from(self.fmt_date(t.created_at)),
                 ])
             })
             .collect();
@@ -1234,7 +1264,6 @@ impl<'a> AppTUI<'a> {
             ],
         )
         .header(header)
-        .block(Block::default().borders(Borders::ALL).title(title))
         .row_highlight_style(Style::default().bg(self.theme.row_highlight));
 
         frame.render_stateful_widget(table, area, &mut self.table_state);
@@ -1243,45 +1272,34 @@ impl<'a> AppTUI<'a> {
     fn render_status(&self, frame: &mut Frame, area: Rect) {
         let text = match self.mode {
             Mode::Filter => {
-                let extra = match self.tab {
-                    Tab::Aliases => " ^E=edit",
-                    Tab::Tokens => " ^V=reveal",
-                    Tab::Commands | Tab::Sessions if self.session_detail_id.is_none() => {
-                        " [/]=page"
-                    }
-                    _ => "",
+                let page_info = if self.is_paginated_tab() && self.total_pages() > 1 {
+                    format!(" pg {}/{}", self.page + 1, self.total_pages())
+                } else {
+                    String::new()
                 };
                 if self.filter.is_empty() {
-                    format!(
-                        " type to search | Esc=quit ←/→=tabs Alt+#=jump ^D=delete{} ^H=help",
-                        extra
-                    )
+                    page_info
                 } else {
-                    format!(
-                        " > {}_ | Esc=clear ↑↓=nav Enter=select ^D=delete{}",
-                        self.filter, extra
-                    )
+                    format!(" / {}_{}",  self.filter, page_info)
                 }
             }
-            Mode::Confirm | Mode::Help => String::new(),
+            Mode::Confirm => String::new(),
             Mode::EditAlias => {
                 let field = match self.edit_field {
                     EditField::Command => "command",
                     EditField::Description => "description",
                 };
                 format!(
-                    " Editing {} [{}] | Tab=switch field Enter=save Esc=cancel",
+                    " Editing {} [{}] | Tab=switch Enter=save Esc=cancel",
                     self.edit_alias_name, field
                 )
             }
         };
 
-        let style = match self.mode {
-            Mode::Filter if !self.filter.is_empty() => {
-                Style::default().fg(self.theme.status_active)
-            }
-            Mode::EditAlias => Style::default().fg(self.theme.status_active),
-            _ => Style::default().fg(self.theme.status_default),
+        let style = if !self.filter.is_empty() || matches!(self.mode, Mode::EditAlias) {
+            Style::default().fg(self.theme.status_active)
+        } else {
+            Style::default().fg(self.theme.status_default)
         };
 
         let status = Paragraph::new(text).style(style);
@@ -1329,36 +1347,37 @@ impl<'a> AppTUI<'a> {
         frame.render_widget(popup, block_area);
     }
 
-    fn render_help(&self, frame: &mut Frame, area: Rect) {
-        let block_area = centered_rect(60, 18, area);
-        let help_text = "\
-Search
-  Just type to filter    Esc  Clear filter / Quit
-  Enter  Select command (Local/Top 50/Sessions tabs)
-
-Navigation
-  ↑/↓     Move up/down
-  ←/→     Switch tabs          Alt+1..7  Jump to tab
-  Tab     Next tab             S-Tab     Previous tab
-  [/]     Previous/Next page (History tab)
-
-Actions (Ctrl shortcuts)
-  ^D    Delete selected
-  ^E    Edit alias (Aliases tab)
-  ^V    Toggle token values (Tokens tab)
-  ^H    This help       ^C     Quit
-
-Press any key to close";
-        let popup = Paragraph::new(help_text)
-            .block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .title("Help")
-                    .style(Style::default().fg(self.theme.popup_accent)),
-            )
-            .style(Style::default().fg(self.theme.popup_text));
-        frame.render_widget(ratatui::widgets::Clear, block_area);
-        frame.render_widget(popup, block_area);
+    fn render_help_tab(&self, frame: &mut Frame, area: Rect) {
+        let help = vec![
+            Line::from(vec![
+                Span::styled("Search", Style::default().fg(self.theme.header).add_modifier(Modifier::BOLD)),
+            ]),
+            Line::from("  type to filter    Enter  run command    Esc  clear / quit"),
+            Line::from(""),
+            Line::from(vec![
+                Span::styled("Navigation", Style::default().fg(self.theme.header).add_modifier(Modifier::BOLD)),
+            ]),
+            Line::from("  ↑/↓       move up/down"),
+            Line::from("  ←/→       page prev/next (History, Sessions)"),
+            Line::from("  Tab       next tab           Shift+Tab  prev tab"),
+            Line::from("  Alt+1..8  jump to tab"),
+            Line::from(""),
+            Line::from(vec![
+                Span::styled("Quick Jump", Style::default().fg(self.theme.header).add_modifier(Modifier::BOLD)),
+            ]),
+            Line::from("  ^H  History        ^L  Local (cwd)     ^S  Current session"),
+            Line::from(""),
+            Line::from(vec![
+                Span::styled("Actions", Style::default().fg(self.theme.header).add_modifier(Modifier::BOLD)),
+            ]),
+            Line::from("  ^T  toggle relative time"),
+            Line::from("  ^D  delete selected"),
+            Line::from("  ^E  edit alias (Aliases tab)"),
+            Line::from("  ^V  reveal token values (Tokens tab)"),
+            Line::from("  ^C  quit"),
+        ];
+        let p = Paragraph::new(help).style(Style::default().fg(self.theme.tab_text));
+        frame.render_widget(p, area);
     }
 }
 
@@ -1368,6 +1387,23 @@ fn truncate(s: &str, max: usize) -> String {
     } else {
         s.to_string()
     }
+}
+
+fn truncate_left(s: &str, max: usize) -> String {
+    if s.len() > max {
+        format!("...{}", &s[s.len() - max.saturating_sub(3)..])
+    } else {
+        s.to_string()
+    }
+}
+
+fn shorten_dir(path: &str) -> String {
+    if let Some(home) = std::env::var("HOME").ok() {
+        if let Some(rest) = path.strip_prefix(&home) {
+            return format!("~{rest}");
+        }
+    }
+    path.to_string()
 }
 
 fn centered_rect(percent_x: u16, height: u16, area: Rect) -> Rect {
