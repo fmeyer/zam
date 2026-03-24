@@ -87,21 +87,20 @@ impl HistoryManagerDb {
             .to_string();
 
         // Redact sensitive information and extract tokens
-        let (redacted_command, tokens) = if self.config.enable_redaction
-            && !self.config.should_skip_redaction(command)
-        {
-            let (redacted, extracted) = self.redact_and_extract_tokens(command)?;
-            let was_redacted = redacted != command;
-            if was_redacted {
-                debug!(
-                    "Redacted sensitive data from command, extracted {} tokens",
-                    extracted.len()
-                );
-            }
-            (redacted, if was_redacted { extracted } else { vec![] })
-        } else {
-            (command.to_string(), vec![])
-        };
+        let (redacted_command, tokens) =
+            if self.config.enable_redaction && !self.config.should_skip_redaction(command) {
+                let (redacted, extracted) = self.redact_and_extract_tokens(command)?;
+                let was_redacted = redacted != command;
+                if was_redacted {
+                    debug!(
+                        "Redacted sensitive data from command, extracted {} tokens",
+                        extracted.len()
+                    );
+                }
+                (redacted, if was_redacted { extracted } else { vec![] })
+            } else {
+                (command.to_string(), vec![])
+            };
 
         // Add command to database
         let command_id = self.db.add_command(

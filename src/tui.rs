@@ -800,7 +800,10 @@ impl<'a> AppTUI<'a> {
                     }
                     KeyCode::Char('t') => {
                         self.relative_time = !self.relative_time;
-                        let _ = self.db.set_preference("relative_time", if self.relative_time { "true" } else { "false" });
+                        let _ = self.db.set_preference(
+                            "relative_time",
+                            if self.relative_time { "true" } else { "false" },
+                        );
                         return Ok(());
                     }
                     KeyCode::Char('v') if self.tab == Tab::Tokens => {
@@ -997,7 +1000,10 @@ impl<'a> AppTUI<'a> {
                 continue;
             }
             if i > 0 && TABS[i - 1] != Tab::Help {
-                spans.push(Span::styled(" ", Style::default().fg(self.theme.tab_number)));
+                spans.push(Span::styled(
+                    " ",
+                    Style::default().fg(self.theme.tab_number),
+                ));
             }
             if i == active_idx {
                 spans.push(Span::styled(
@@ -1136,15 +1142,9 @@ impl<'a> AppTUI<'a> {
             })
             .collect();
 
-        let table = Table::new(
-            rows,
-            [
-                Constraint::Length(6),
-                Constraint::Min(20),
-            ],
-        )
-        .header(header)
-        .row_highlight_style(self.row_highlight_style());
+        let table = Table::new(rows, [Constraint::Length(6), Constraint::Min(20)])
+            .header(header)
+            .row_highlight_style(self.row_highlight_style());
 
         frame.render_stateful_widget(table, area, &mut self.table_state);
     }
@@ -1171,7 +1171,10 @@ impl<'a> AppTUI<'a> {
                     exit_code_cell(c.exit_code),
                     Cell::from(self.fmt_time(c.timestamp)),
                     cmd_cell,
-                    Cell::from(truncate_left(&shorten_dir(&c.directory, &self.home), dir_width as usize)),
+                    Cell::from(truncate_left(
+                        &shorten_dir(&c.directory, &self.home),
+                        dir_width as usize,
+                    )),
                 ])
             })
             .collect();
@@ -1362,7 +1365,10 @@ impl<'a> AppTUI<'a> {
                     Cell::from(c.id.to_string()),
                     Cell::from(self.fmt_time(c.timestamp)),
                     Cell::from(c.command.as_str()),
-                    Cell::from(truncate_left(&shorten_dir(&c.directory, &self.home), dir_width as usize)),
+                    Cell::from(truncate_left(
+                        &shorten_dir(&c.directory, &self.home),
+                        dir_width as usize,
+                    )),
                     Cell::from(r),
                 ])
             })
@@ -1632,14 +1638,8 @@ fn shorten_dir(path: &str, home: &str) -> String {
 
 fn exit_code_cell(exit_code: Option<i32>) -> Cell<'static> {
     match exit_code {
-        None | Some(0) => Cell::from(Span::styled(
-            "\u{2713}",
-            Style::default().fg(Color::Green),
-        )),
-        Some(_) => Cell::from(Span::styled(
-            "\u{2717}",
-            Style::default().fg(Color::Red),
-        )),
+        None | Some(0) => Cell::from(Span::styled("\u{2713}", Style::default().fg(Color::Green))),
+        Some(_) => Cell::from(Span::styled("\u{2717}", Style::default().fg(Color::Red))),
     }
 }
 
@@ -1663,7 +1663,9 @@ fn highlight_matches<'a>(text: &'a str, filter: &str) -> Line<'a> {
                 if in_highlight {
                     spans.push(Span::styled(
                         std::mem::take(&mut buf),
-                        Style::default().add_modifier(Modifier::BOLD).fg(Color::Yellow),
+                        Style::default()
+                            .add_modifier(Modifier::BOLD)
+                            .fg(Color::Yellow),
                     ));
                 } else {
                     spans.push(Span::raw(std::mem::take(&mut buf)));
@@ -1677,7 +1679,9 @@ fn highlight_matches<'a>(text: &'a str, filter: &str) -> Line<'a> {
         if in_highlight {
             spans.push(Span::styled(
                 buf,
-                Style::default().add_modifier(Modifier::BOLD).fg(Color::Yellow),
+                Style::default()
+                    .add_modifier(Modifier::BOLD)
+                    .fg(Color::Yellow),
             ));
         } else {
             spans.push(Span::raw(buf));

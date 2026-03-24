@@ -215,7 +215,10 @@ pub fn handle_vacuum(app: &mut CliApp, args: &VacuumArgs) -> Result<()> {
     if let Some(max_entries) = args.max_entries {
         let pruned = mgr.db.prune_old_commands(max_entries)?;
         if !app.quiet {
-            println!("Pruned {} old commands (keeping newest {})", pruned, max_entries);
+            println!(
+                "Pruned {} old commands (keeping newest {})",
+                pruned, max_entries
+            );
         }
     }
 

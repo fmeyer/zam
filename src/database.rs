@@ -661,7 +661,8 @@ impl Database {
         );
 
         let mut stmt = self.conn.prepare(&sql)?;
-        let params_ref: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|p| p.as_ref()).collect();
+        let params_ref: Vec<&dyn rusqlite::types::ToSql> =
+            params.iter().map(|p| p.as_ref()).collect();
 
         let commands = stmt
             .query_map(params_ref.as_slice(), |row| {
@@ -691,10 +692,9 @@ impl Database {
     /// Count unique commands with optional filter
     pub fn count_unique_commands_filtered(&self, filter: Option<&str>) -> Result<usize> {
         let (where_extra, params): (&str, Vec<Box<dyn rusqlite::types::ToSql>>) = match filter {
-            Some(f) if !f.is_empty() => (
-                " AND command LIKE ?1",
-                vec![Box::new(format!("%{}%", f))],
-            ),
+            Some(f) if !f.is_empty() => {
+                (" AND command LIKE ?1", vec![Box::new(format!("%{}%", f))])
+            }
             _ => ("", vec![]),
         };
 
@@ -706,8 +706,11 @@ impl Database {
             )"
         );
 
-        let params_ref: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|p| p.as_ref()).collect();
-        let count: i64 = self.conn.query_row(&sql, params_ref.as_slice(), |row| row.get(0))?;
+        let params_ref: Vec<&dyn rusqlite::types::ToSql> =
+            params.iter().map(|p| p.as_ref()).collect();
+        let count: i64 = self
+            .conn
+            .query_row(&sql, params_ref.as_slice(), |row| row.get(0))?;
         Ok(count as usize)
     }
 
@@ -753,8 +756,10 @@ impl Database {
             placeholders.join(",")
         );
         let mut stmt = self.conn.prepare(&sql)?;
-        let params: Vec<&dyn rusqlite::types::ToSql> =
-            session_ids.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
+        let params: Vec<&dyn rusqlite::types::ToSql> = session_ids
+            .iter()
+            .map(|s| s as &dyn rusqlite::types::ToSql)
+            .collect();
         let mut counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
         let rows = stmt.query_map(params.as_slice(), |row| {
             Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)? as usize))
@@ -763,7 +768,10 @@ impl Database {
             let (sid, cnt) = r?;
             counts.insert(sid, cnt);
         }
-        Ok(session_ids.iter().map(|sid| *counts.get(*sid).unwrap_or(&0)).collect())
+        Ok(session_ids
+            .iter()
+            .map(|sid| *counts.get(*sid).unwrap_or(&0))
+            .collect())
     }
 
     /// Get all commands for a specific session
@@ -1166,8 +1174,11 @@ impl Database {
              {where_clause}"
         );
 
-        let params_ref: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|p| p.as_ref()).collect();
-        let count: i64 = self.conn.query_row(&sql, params_ref.as_slice(), |row| row.get(0))?;
+        let params_ref: Vec<&dyn rusqlite::types::ToSql> =
+            params.iter().map(|p| p.as_ref()).collect();
+        let count: i64 = self
+            .conn
+            .query_row(&sql, params_ref.as_slice(), |row| row.get(0))?;
         Ok(count as usize)
     }
 
@@ -1192,10 +1203,7 @@ impl Database {
                     Box::new(format!("%{}%", f)),
                 ],
             ),
-            _ => (
-                "",
-                vec![Box::new(limit as i64), Box::new(offset as i64)],
-            ),
+            _ => ("", vec![Box::new(limit as i64), Box::new(offset as i64)]),
         };
 
         let sql = format!(
@@ -1208,7 +1216,8 @@ impl Database {
         );
 
         let mut stmt = self.conn.prepare(&sql)?;
-        let params_ref: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|p| p.as_ref()).collect();
+        let params_ref: Vec<&dyn rusqlite::types::ToSql> =
+            params.iter().map(|p| p.as_ref()).collect();
 
         let sessions = stmt
             .query_map(params_ref.as_slice(), |row| {
@@ -1359,7 +1368,10 @@ impl Database {
 
     /// Get a boolean preference (defaults to false if missing)
     pub fn get_bool_preference(&self, key: &str) -> Result<bool> {
-        Ok(self.get_preference(key)?.map(|v| v == "true").unwrap_or(false))
+        Ok(self
+            .get_preference(key)?
+            .map(|v| v == "true")
+            .unwrap_or(false))
     }
 
     /// Run VACUUM to reclaim unused space and defragment the database file
