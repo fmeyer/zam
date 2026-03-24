@@ -87,7 +87,9 @@ impl HistoryManagerDb {
             .to_string();
 
         // Redact sensitive information and extract tokens
-        let (redacted_command, tokens) = if self.config.enable_redaction {
+        let (redacted_command, tokens) = if self.config.enable_redaction
+            && !self.config.should_skip_redaction(command)
+        {
             let (redacted, extracted) = self.redact_and_extract_tokens(command)?;
             let was_redacted = redacted != command;
             if was_redacted {

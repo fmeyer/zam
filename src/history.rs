@@ -116,7 +116,7 @@ impl HistoryManager {
             .to_string();
 
         // Redact sensitive information
-        let (redacted_command, was_redacted) = if self.config.enable_redaction {
+        let (redacted_command, was_redacted) = if self.config.enable_redaction && !self.config.should_skip_redaction(command) {
             let original = command.to_string();
             let redacted = self
                 .redaction_engine
@@ -432,7 +432,7 @@ impl HistoryManager {
                     timestamp: timestamp_str.to_string(),
                 })?;
 
-            let (redacted_command, was_redacted) = if self.config.enable_redaction {
+            let (redacted_command, was_redacted) = if self.config.enable_redaction && !self.config.should_skip_redaction(command) {
                 let original = command.to_string();
                 let redacted = self.redaction_engine.redact(command)?;
                 (redacted.clone(), redacted != original)
@@ -460,7 +460,7 @@ impl HistoryManager {
             return Ok(None); // Skip comments
         }
 
-        let (redacted_command, was_redacted) = if self.config.enable_redaction {
+        let (redacted_command, was_redacted) = if self.config.enable_redaction && !self.config.should_skip_redaction(line) {
             let original = line.to_string();
             let redacted = self.redaction_engine.redact(line)?;
             (redacted.clone(), redacted != original)
@@ -483,7 +483,7 @@ impl HistoryManager {
         // Fish format: "- cmd: command\n  when: timestamp\n  paths: [...]"
         // This is a simplified parser for the most common case
         if let Some(command) = line.strip_prefix("- cmd: ") {
-            let (redacted_command, was_redacted) = if self.config.enable_redaction {
+            let (redacted_command, was_redacted) = if self.config.enable_redaction && !self.config.should_skip_redaction(command) {
                 let original = command.to_string();
                 let redacted = self.redaction_engine.redact(command)?;
                 (redacted.clone(), redacted != original)

@@ -210,6 +210,11 @@ impl Database {
             [],
         )?;
 
+        self.conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_commands_command ON commands(command)",
+            [],
+        )?;
+
         // Session secrets table - tracks keys loaded from external sources (values NOT stored)
         self.conn.execute(
             "CREATE TABLE IF NOT EXISTS session_secrets (
@@ -731,6 +736,31 @@ impl Database {
             .collect::<rusqlite::Result<Vec<_>>>()?;
 
         Ok(commands)
+    }
+
+    /// Get all commands for a specific session
+    /// Count commands for a batch of session IDs (single query)
+    pub fn count_commands_for_sessions(&self, session_ids: &[&str]) -> Result<Vec<usize>> {
+        if session_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let placeholders: Vec<String> = (1..=session_ids.len()).map(|i| format!("?{i}")).collect();
+        let sql = format!(
+            "SELECT session_id, COUNT(*) FROM commands WHERE session_id IN ({}) GROUP BY session_id",
+            placeholders.join(",")
+        );
+        let mut stmt = self.conn.prepare(&sql)?;
+        let params: Vec<&dyn rusqlite::types::ToSql> =
+            session_ids.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
+        let mut counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+        let rows = stmt.query_map(params.as_slice(), |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)? as usize))
+        })?;
+        for r in rows {
+            let (sid, cnt) = r?;
+            counts.insert(sid, cnt);
+        }
+        Ok(session_ids.iter().map(|sid| *counts.get(*sid).unwrap_or(&0)).collect())
     }
 
     /// Get all commands for a specific session

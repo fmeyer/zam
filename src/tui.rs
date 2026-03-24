@@ -13,7 +13,7 @@ use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Cell, Paragraph, Row, Table, TableState, Tabs, Wrap},
+    widgets::{Block, Borders, Cell, Paragraph, Row, Table, TableState, Wrap},
 };
 use std::fs::File;
 
@@ -164,6 +164,7 @@ struct FrequentCommand {
 struct AppTUI<'a> {
     db: &'a Database,
     cwd: String,
+    home: String,
     tab: Tab,
     mode: Mode,
     theme: Theme,
@@ -175,6 +176,7 @@ struct AppTUI<'a> {
     aliases: Vec<Alias>,
     hosts: Vec<Host>,
     sessions: Vec<Session>,
+    session_cmd_counts: Vec<usize>,
     tokens: Vec<Token>,
 
     // Session detail drill-down
@@ -214,6 +216,7 @@ impl<'a> AppTUI<'a> {
         let mut app = Self {
             db,
             cwd,
+            home: std::env::var("HOME").unwrap_or_default(),
             tab: Tab::Commands,
             mode: Mode::Filter,
             theme: Theme::detect(),
@@ -225,6 +228,7 @@ impl<'a> AppTUI<'a> {
             aliases: Vec::new(),
             hosts: Vec::new(),
             sessions: Vec::new(),
+            session_cmd_counts: Vec::new(),
             tokens: Vec::new(),
             page: 0,
             page_size: 100,
@@ -242,6 +246,14 @@ impl<'a> AppTUI<'a> {
             running: true,
             selected_command: None,
         };
+        // Restore last tab from preferences
+        if let Ok(Some(val)) = db.get_preference("last_tab") {
+            if let Ok(idx) = val.parse::<usize>() {
+                if idx < TABS.len() {
+                    app.tab = TABS[idx];
+                }
+            }
+        }
         app.load_tab()?;
         Ok(app)
     }
@@ -270,6 +282,8 @@ impl<'a> AppTUI<'a> {
                     self.page_size,
                     filter,
                 )?;
+                let sids: Vec<&str> = self.sessions.iter().map(|s| s.id.as_ref()).collect();
+                self.session_cmd_counts = self.db.count_commands_for_sessions(&sids)?;
                 self.row_count = self.sessions.len();
             }
             Tab::Local => {
@@ -459,6 +473,7 @@ impl<'a> AppTUI<'a> {
         self.page = 0;
         self.session_detail_id = None;
         self.session_commands.clear();
+        let _ = self.db.set_preference("last_tab", &idx.to_string());
         self.load_tab()
     }
 
@@ -473,6 +488,7 @@ impl<'a> AppTUI<'a> {
         self.page = 0;
         self.session_detail_id = None;
         self.session_commands.clear();
+        let _ = self.db.set_preference("last_tab", &idx.to_string());
         self.load_tab()
     }
 
@@ -686,6 +702,7 @@ impl<'a> AppTUI<'a> {
             self.page = 0;
             self.session_detail_id = None;
             self.session_commands.clear();
+            let _ = self.db.set_preference("last_tab", &idx.to_string());
             self.load_tab()?;
         }
         Ok(())
@@ -792,6 +809,8 @@ impl<'a> AppTUI<'a> {
                         self.filter.clear();
                         self.page = 0;
                         self.load_tab()?;
+                    } else if self.tab == Tab::Help {
+                        self.jump_to_tab(Tab::Commands.index())?;
                     } else if self.filter.is_empty() {
                         self.running = false;
                     } else {
@@ -811,6 +830,14 @@ impl<'a> AppTUI<'a> {
                 KeyCode::Enter if self.tab == Tab::Local => {
                     if let Some(idx) = self.resolve_selected()
                         && let Some(cmd) = self.local_commands.get(idx)
+                    {
+                        self.selected_command = Some(cmd.command.clone());
+                        self.running = false;
+                    }
+                }
+                KeyCode::Enter if self.tab == Tab::Sessions && self.session_detail_id.is_some() => {
+                    if let Some(idx) = self.resolve_selected()
+                        && let Some(cmd) = self.session_commands.get(idx)
                     {
                         self.selected_command = Some(cmd.command.clone());
                         self.running = false;
@@ -854,6 +881,9 @@ impl<'a> AppTUI<'a> {
                 KeyCode::Tab => self.next_tab()?,
                 KeyCode::BackTab => self.prev_tab()?,
                 KeyCode::Delete => self.request_delete(),
+                KeyCode::Char('?') if self.filter.is_empty() => {
+                    self.jump_to_tab(Tab::Help.index())?;
+                }
                 KeyCode::Char(c) => {
                     self.filter.push(c);
                     self.page = 0;
@@ -892,29 +922,61 @@ impl<'a> AppTUI<'a> {
     }
 
     fn render_tabs(&self, frame: &mut Frame, area: Rect) {
-        let titles: Vec<Line> = TABS
-            .iter()
-            .enumerate()
-            .map(|(i, t)| {
-                let num = format!("{}:", i + 1);
-                Line::from(vec![
-                    Span::styled(num, Style::default().fg(self.theme.tab_number)),
-                    Span::raw(t.title()),
-                ])
-            })
-            .collect();
-
-        let tabs = Tabs::new(titles)
-            .select(self.tab.index())
-            .style(Style::default().fg(self.theme.tab_text))
-            .highlight_style(
+        let mut spans: Vec<Span> = Vec::new();
+        let active_idx = self.tab.index();
+        for (i, t) in TABS.iter().enumerate() {
+            if *t == Tab::Help {
+                continue;
+            }
+            if i > 0 && TABS[i - 1] != Tab::Help {
+                spans.push(Span::styled(" ", Style::default().fg(self.theme.tab_number)));
+            }
+            if i == active_idx {
+                let count = if matches!(t, Tab::Commands | Tab::Sessions) && self.session_detail_id.is_none() {
+                    self.total_paged_rows
+                } else {
+                    self.row_count
+                };
+                let label = if *t == Tab::Help {
+                    format!(" {} ", t.title())
+                } else {
+                    format!(" {} ({}) ", t.title(), format_thousands(count))
+                };
+                spans.push(Span::styled(
+                    label,
+                    Style::default()
+                        .fg(self.theme.tab_highlight)
+                        .add_modifier(Modifier::BOLD | Modifier::REVERSED),
+                ));
+            } else {
+                spans.push(Span::styled(
+                    format!(" {} ", t.title()),
+                    Style::default().fg(self.theme.tab_number),
+                ));
+            }
+        }
+        // Right-align help hint
+        let used: usize = spans.iter().map(|s| s.width()).sum();
+        let help_text = " ? help ";
+        let remaining = (area.width as usize).saturating_sub(used + help_text.len());
+        if remaining > 0 {
+            spans.push(Span::raw(" ".repeat(remaining)));
+        }
+        if self.tab == Tab::Help {
+            spans.push(Span::styled(
+                help_text,
                 Style::default()
                     .fg(self.theme.tab_highlight)
-                    .add_modifier(Modifier::BOLD),
-            )
-            .divider("│");
-
-        frame.render_widget(tabs, area);
+                    .add_modifier(Modifier::BOLD | Modifier::REVERSED),
+            ));
+        } else {
+            spans.push(Span::styled(
+                help_text,
+                Style::default().fg(self.theme.tab_number),
+            ));
+        }
+        let line = Line::from(spans);
+        frame.render_widget(Paragraph::new(line), area);
     }
 
     fn render_table(&mut self, frame: &mut Frame, area: Rect) {
@@ -930,6 +992,22 @@ impl<'a> AppTUI<'a> {
             Tab::Sessions => self.render_sessions(frame, area),
             Tab::Tokens => self.render_tokens(frame, area),
             Tab::Help => self.render_help_tab(frame, area),
+        }
+        // Empty state overlay
+        if self.tab != Tab::Help && self.filtered_row_count() == 0 {
+            let msg = if self.filter.is_empty() {
+                "No entries"
+            } else {
+                "No results matching filter"
+            };
+            let p = Paragraph::new(msg)
+                .style(Style::default().fg(self.theme.status_default))
+                .alignment(ratatui::layout::Alignment::Center);
+            let y = area.y + area.height / 2;
+            if y < area.y + area.height {
+                let msg_area = Rect::new(area.x, y, area.width, 1);
+                frame.render_widget(p, msg_area);
+            }
         }
     }
 
@@ -1006,7 +1084,8 @@ impl<'a> AppTUI<'a> {
     }
 
     fn render_commands(&mut self, frame: &mut Frame, area: Rect) {
-        let header = Row::new(vec!["Timestamp", "Command", "Directory"]).style(
+        let filter_lower = self.filter.to_lowercase();
+        let header = Row::new(vec!["", "Timestamp", "Command", "Directory"]).style(
             Style::default()
                 .fg(self.theme.header)
                 .add_modifier(Modifier::BOLD),
@@ -1016,10 +1095,16 @@ impl<'a> AppTUI<'a> {
             .commands
             .iter()
             .map(|c| {
+                let cmd_cell = if !filter_lower.is_empty() {
+                    Cell::from(highlight_matches(&c.command, &filter_lower))
+                } else {
+                    Cell::from(c.command.as_str())
+                };
                 Row::new(vec![
+                    exit_code_cell(c.exit_code),
                     Cell::from(self.fmt_time(c.timestamp)),
-                    Cell::from(c.command.as_str()),
-                    Cell::from(truncate_left(&shorten_dir(&c.directory), 25)),
+                    cmd_cell,
+                    Cell::from(truncate_left(&shorten_dir(&c.directory, &self.home), 25)),
                 ])
             })
             .collect();
@@ -1027,6 +1112,7 @@ impl<'a> AppTUI<'a> {
         let table = Table::new(
             rows,
             [
+                Constraint::Length(2),
                 Constraint::Length(16),
                 Constraint::Min(20),
                 Constraint::Length(25),
@@ -1039,7 +1125,8 @@ impl<'a> AppTUI<'a> {
     }
 
     fn render_local(&mut self, frame: &mut Frame, area: Rect) {
-        let header = Row::new(vec!["Timestamp", "Command"]).style(
+        let filter_lower = self.filter.to_lowercase();
+        let header = Row::new(vec!["", "Timestamp", "Command"]).style(
             Style::default()
                 .fg(self.theme.header)
                 .add_modifier(Modifier::BOLD),
@@ -1050,9 +1137,15 @@ impl<'a> AppTUI<'a> {
             .iter()
             .filter(|c| self.matches_filter(&c.command))
             .map(|c| {
+                let cmd_cell = if !filter_lower.is_empty() {
+                    Cell::from(highlight_matches(&c.command, &filter_lower))
+                } else {
+                    Cell::from(c.command.as_str())
+                };
                 Row::new(vec![
+                    exit_code_cell(c.exit_code),
                     Cell::from(self.fmt_time(c.timestamp)),
-                    Cell::from(c.command.as_str()),
+                    cmd_cell,
                 ])
             })
             .collect();
@@ -1060,6 +1153,7 @@ impl<'a> AppTUI<'a> {
         let table = Table::new(
             rows,
             [
+                Constraint::Length(2),
                 Constraint::Length(16),
                 Constraint::Min(20),
             ],
@@ -1150,16 +1244,13 @@ impl<'a> AppTUI<'a> {
         let rows: Vec<Row> = self
             .sessions
             .iter()
-            .map(|s| {
+            .enumerate()
+            .map(|(i, s)| {
                 let status = s
                     .ended_at
                     .map(|e| self.fmt_time(e))
                     .unwrap_or_else(|| "active".into());
-                let cmd_count = self
-                    .db
-                    .get_commands_for_session(s.id.as_ref())
-                    .map(|c| c.len())
-                    .unwrap_or(0);
+                let cmd_count = self.session_cmd_counts.get(i).copied().unwrap_or(0);
                 let id_display = format!("{} ({} cmds)", s.id, cmd_count);
                 Row::new(vec![
                     Cell::from(id_display),
@@ -1186,7 +1277,7 @@ impl<'a> AppTUI<'a> {
     }
 
     fn render_session_commands(&mut self, frame: &mut Frame, area: Rect) {
-        let header = Row::new(vec!["ID", "Timestamp", "Command", "Directory", "R"]).style(
+        let header = Row::new(vec!["", "ID", "Timestamp", "Command", "Directory", "R"]).style(
             Style::default()
                 .fg(self.theme.header)
                 .add_modifier(Modifier::BOLD),
@@ -1199,10 +1290,11 @@ impl<'a> AppTUI<'a> {
             .map(|c| {
                 let r = if c.redacted { "Y" } else { "" };
                 Row::new(vec![
+                    exit_code_cell(c.exit_code),
                     Cell::from(c.id.to_string()),
                     Cell::from(self.fmt_time(c.timestamp)),
                     Cell::from(c.command.chars().take(60).collect::<String>()),
-                    Cell::from(truncate_left(&shorten_dir(&c.directory), 25)),
+                    Cell::from(truncate_left(&shorten_dir(&c.directory, &self.home), 25)),
                     Cell::from(r),
                 ])
             })
@@ -1211,6 +1303,7 @@ impl<'a> AppTUI<'a> {
         let table = Table::new(
             rows,
             [
+                Constraint::Length(2),
                 Constraint::Length(6),
                 Constraint::Length(16),
                 Constraint::Min(20),
@@ -1397,13 +1490,63 @@ fn truncate_left(s: &str, max: usize) -> String {
     }
 }
 
-fn shorten_dir(path: &str) -> String {
-    if let Some(home) = std::env::var("HOME").ok() {
-        if let Some(rest) = path.strip_prefix(&home) {
+fn shorten_dir(path: &str, home: &str) -> String {
+    if !home.is_empty() {
+        if let Some(rest) = path.strip_prefix(home) {
             return format!("~{rest}");
         }
     }
     path.to_string()
+}
+
+fn exit_code_cell(exit_code: Option<i32>) -> Cell<'static> {
+    match exit_code {
+        None | Some(0) => Cell::from(Span::styled(
+            "\u{2713}",
+            Style::default().fg(Color::Green),
+        )),
+        Some(_) => Cell::from(Span::styled(
+            "\u{2717}",
+            Style::default().fg(Color::Red),
+        )),
+    }
+}
+
+fn highlight_matches<'a>(text: &'a str, filter_lower: &str) -> Line<'a> {
+    if filter_lower.is_empty() {
+        return Line::from(text);
+    }
+    let text_lower = text.to_lowercase();
+    let mut spans: Vec<Span<'a>> = Vec::new();
+    let mut pos = 0;
+    while let Some(start) = text_lower[pos..].find(filter_lower) {
+        let abs_start = pos + start;
+        let abs_end = abs_start + filter_lower.len();
+        if abs_start > pos {
+            spans.push(Span::raw(text[pos..abs_start].to_string()));
+        }
+        spans.push(Span::styled(
+            text[abs_start..abs_end].to_string(),
+            Style::default().add_modifier(Modifier::BOLD).fg(Color::Yellow),
+        ));
+        pos = abs_end;
+    }
+    if pos < text.len() {
+        spans.push(Span::raw(text[pos..].to_string()));
+    }
+    Line::from(spans)
+}
+
+fn format_thousands(n: usize) -> String {
+    let s = n.to_string();
+    let mut result = String::with_capacity(s.len() + s.len() / 3);
+    for (i, c) in s.chars().enumerate() {
+        if i > 0 && (s.len() - i) % 3 == 0 {
+            result.push(',');
+        }
+        result.push(c);
+    }
+    result
 }
 
 fn centered_rect(percent_x: u16, height: u16, area: Rect) -> Rect {

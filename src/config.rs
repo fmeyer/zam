@@ -70,6 +70,10 @@ pub struct RedactionConfig {
 
     /// Minimum length for values to be considered for redaction
     pub min_redaction_length: usize,
+
+    /// Commands to skip redaction for (matched by prefix, e.g. "cargo", "make")
+    #[serde(default)]
+    pub skip_commands: Vec<String>,
 }
 
 /// Configuration for importing history from other shells
@@ -183,6 +187,18 @@ impl Default for RedactionConfig {
             exclude_patterns: Vec::new(),
             redact_env_vars: true,
             min_redaction_length: 3,
+            skip_commands: vec![
+                "cargo".into(),
+                "make".into(),
+                "gcc".into(),
+                "rustc".into(),
+                "go".into(),
+                "npm".into(),
+                "yarn".into(),
+                "pnpm".into(),
+                "pip".into(),
+                "brew".into(),
+            ],
         }
     }
 }
@@ -379,6 +395,12 @@ impl Config {
 
         patterns.extend(self.redaction.custom_patterns.clone());
         patterns
+    }
+
+    /// Check if redaction should be skipped for this command
+    pub fn should_skip_redaction(&self, command: &str) -> bool {
+        let cmd = command.split_whitespace().next().unwrap_or("");
+        self.redaction.skip_commands.iter().any(|s| cmd == s)
     }
 
     /// Check if a command should be excluded from logging
