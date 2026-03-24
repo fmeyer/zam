@@ -249,12 +249,11 @@ impl<'a> AppTUI<'a> {
             selected_command: None,
         };
         // Restore last tab from preferences
-        if let Ok(Some(val)) = db.get_preference("last_tab") {
-            if let Ok(idx) = val.parse::<usize>() {
-                if idx < TABS.len() {
-                    app.tab = TABS[idx];
-                }
-            }
+        if let Ok(Some(val)) = db.get_preference("last_tab")
+            && let Ok(idx) = val.parse::<usize>()
+            && idx < TABS.len()
+        {
+            app.tab = TABS[idx];
         }
         app.load_tab()?;
         Ok(app)
@@ -1628,10 +1627,10 @@ fn truncate_left(s: &str, max: usize) -> String {
 }
 
 fn shorten_dir(path: &str, home: &str) -> String {
-    if !home.is_empty() {
-        if let Some(rest) = path.strip_prefix(home) {
-            return format!("~{rest}");
-        }
+    if !home.is_empty()
+        && let Some(rest) = path.strip_prefix(home)
+    {
+        return format!("~{rest}");
     }
     path.to_string()
 }
@@ -1694,7 +1693,7 @@ fn format_thousands(n: usize) -> String {
     let s = n.to_string();
     let mut result = String::with_capacity(s.len() + s.len() / 3);
     for (i, c) in s.chars().enumerate() {
-        if i > 0 && (s.len() - i) % 3 == 0 {
+        if i > 0 && (s.len() - i).is_multiple_of(3) {
             result.push(',');
         }
         result.push(c);
