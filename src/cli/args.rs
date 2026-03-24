@@ -432,6 +432,13 @@ pub struct AliasExportArgs {
     pub output: Option<std::path::PathBuf>,
 }
 
+#[derive(Args)]
+pub struct VacuumArgs {
+    /// Maximum number of commands to keep (prunes oldest beyond this limit)
+    #[arg(long)]
+    pub max_entries: Option<usize>,
+}
+
 #[derive(clap::ValueEnum, Clone)]
 pub enum ShellType {
     Zsh,

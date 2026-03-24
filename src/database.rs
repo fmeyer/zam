@@ -104,6 +104,9 @@ impl Database {
 
         let conn = Connection::open(db_path)?;
 
+        // Enable WAL journal mode for better concurrent performance
+        conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;")?;
+
         // Enable foreign keys
         conn.execute("PRAGMA foreign_keys = ON", [])?;
 
@@ -1357,6 +1360,24 @@ impl Database {
     /// Get a boolean preference (defaults to false if missing)
     pub fn get_bool_preference(&self, key: &str) -> Result<bool> {
         Ok(self.get_preference(key)?.map(|v| v == "true").unwrap_or(false))
+    }
+
+    /// Run VACUUM to reclaim unused space and defragment the database file
+    pub fn vacuum(&self) -> Result<()> {
+        self.conn.execute_batch("VACUUM")?;
+        Ok(())
+    }
+
+    /// Delete the oldest commands beyond `max_entries`, keeping the most recent ones.
+    /// Returns the number of deleted rows.
+    pub fn prune_old_commands(&self, max_entries: usize) -> Result<usize> {
+        let deleted = self.conn.execute(
+            "DELETE FROM commands WHERE id NOT IN (
+                SELECT id FROM commands ORDER BY timestamp DESC LIMIT ?1
+            )",
+            params![max_entries as i64],
+        )?;
+        Ok(deleted)
     }
 }
 

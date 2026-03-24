@@ -127,13 +127,13 @@ const TABS: [Tab; 8] = [
 impl Tab {
     fn title(self) -> &'static str {
         match self {
-            Tab::Local => "Local",
-            Tab::Frequent => "Top 50",
-            Tab::Commands => "History",
-            Tab::Aliases => "Aliases",
-            Tab::Hosts => "Hosts",
-            Tab::Sessions => "Sessions",
-            Tab::Tokens => "Tokens",
+            Tab::Local => "local",
+            Tab::Frequent => "top 50",
+            Tab::Commands => "global",
+            Tab::Aliases => "aliases",
+            Tab::Hosts => "hosts",
+            Tab::Sessions => "sessions",
+            Tab::Tokens => "tokens",
             Tab::Help => "?",
         }
     }
@@ -204,6 +204,7 @@ struct AppTUI<'a> {
     edit_alias_name: String,
 
     // Status
+    copied_at: Option<std::time::Instant>,
     status: Option<String>,
     show_values: bool,
     relative_time: bool,
@@ -240,6 +241,7 @@ impl<'a> AppTUI<'a> {
             edit_field: EditField::Command,
             edit_buf: String::new(),
             edit_alias_name: String::new(),
+            copied_at: None,
             status: None,
             show_values: false,
             relative_time: db.get_bool_preference("relative_time").unwrap_or(false),
@@ -708,6 +710,68 @@ impl<'a> AppTUI<'a> {
         Ok(())
     }
 
+    /// Get the command string for the currently selected row, if applicable.
+    fn selected_command_text(&self) -> Option<String> {
+        let idx = self.resolve_selected()?;
+        match self.tab {
+            Tab::Commands => self.commands.get(idx).map(|c| c.command.clone()),
+            Tab::Local => self.local_commands.get(idx).map(|c| c.command.clone()),
+            Tab::Frequent => self.frequent.get(idx).map(|f| f.command.clone()),
+            Tab::Sessions if self.session_detail_id.is_some() => {
+                self.session_commands.get(idx).map(|c| c.command.clone())
+            }
+            _ => None,
+        }
+    }
+
+    /// Copy the currently selected command to the system clipboard via pbcopy.
+    fn yank_to_clipboard(&mut self) {
+        let Some(cmd) = self.selected_command_text() else {
+            return;
+        };
+        use std::io::Write;
+        let result = std::process::Command::new("pbcopy")
+            .stdin(std::process::Stdio::piped())
+            .spawn()
+            .and_then(|mut child| {
+                if let Some(ref mut stdin) = child.stdin {
+                    stdin.write_all(cmd.as_bytes())?;
+                }
+                child.wait()
+            });
+        match result {
+            Ok(status) if status.success() => {
+                self.copied_at = Some(std::time::Instant::now());
+            }
+            _ => {
+                self.status = Some("Failed to copy to clipboard".into());
+            }
+        }
+    }
+
+    /// Fuzzy match: each character in `pattern` must appear in `text` in order,
+    /// but not necessarily contiguously. Returns the indices of matched chars if matched.
+    fn fuzzy_match_indices(pattern: &str, text: &str) -> Option<Vec<usize>> {
+        let pattern_lower: Vec<char> = pattern.to_lowercase().chars().collect();
+        let text_chars: Vec<char> = text.to_lowercase().chars().collect();
+        let mut indices = Vec::with_capacity(pattern_lower.len());
+        let mut text_idx = 0;
+        for p in &pattern_lower {
+            loop {
+                if text_idx >= text_chars.len() {
+                    return None;
+                }
+                if text_chars[text_idx] == *p {
+                    indices.push(text_idx);
+                    text_idx += 1;
+                    break;
+                }
+                text_idx += 1;
+            }
+        }
+        Some(indices)
+    }
+
     fn handle_key(&mut self, key: KeyEvent) -> Result<()> {
         // Global modifier shortcuts work in any mode except Confirm and EditAlias
         if self.mode != Mode::Confirm && self.mode != Mode::EditAlias {
@@ -753,6 +817,10 @@ impl<'a> AppTUI<'a> {
                     }
                     KeyCode::Char('h') => {
                         self.jump_to_tab(Tab::Commands.index())?;
+                        return Ok(());
+                    }
+                    KeyCode::Char('y') => {
+                        self.yank_to_clipboard();
                         return Ok(());
                     }
                     _ => {}
@@ -932,18 +1000,8 @@ impl<'a> AppTUI<'a> {
                 spans.push(Span::styled(" ", Style::default().fg(self.theme.tab_number)));
             }
             if i == active_idx {
-                let count = if matches!(t, Tab::Commands | Tab::Sessions) && self.session_detail_id.is_none() {
-                    self.total_paged_rows
-                } else {
-                    self.row_count
-                };
-                let label = if *t == Tab::Help {
-                    format!(" {} ", t.title())
-                } else {
-                    format!(" {} ({}) ", t.title(), format_thousands(count))
-                };
                 spans.push(Span::styled(
-                    label,
+                    format!(" {} ", t.title()),
                     Style::default()
                         .fg(self.theme.tab_highlight)
                         .add_modifier(Modifier::BOLD | Modifier::REVERSED),
@@ -996,9 +1054,9 @@ impl<'a> AppTUI<'a> {
         // Empty state overlay
         if self.tab != Tab::Help && self.filtered_row_count() == 0 {
             let msg = if self.filter.is_empty() {
-                "No entries"
+                "no entries"
             } else {
-                "No results matching filter"
+                "no results"
             };
             let p = Paragraph::new(msg)
                 .style(Style::default().fg(self.theme.status_default))
@@ -1011,11 +1069,22 @@ impl<'a> AppTUI<'a> {
         }
     }
 
+    fn row_highlight_style(&self) -> Style {
+        let flash = self
+            .copied_at
+            .is_some_and(|t| t.elapsed() < std::time::Duration::from_millis(500));
+        if flash {
+            Style::default().bg(Color::Green).fg(Color::Black)
+        } else {
+            Style::default().bg(self.theme.row_highlight)
+        }
+    }
+
     fn matches_filter(&self, text: &str) -> bool {
         if self.filter.is_empty() {
             return true;
         }
-        text.to_lowercase().contains(&self.filter.to_lowercase())
+        Self::fuzzy_match_indices(&self.filter, text).is_some()
     }
 
     fn fmt_time(&self, dt: chrono::DateTime<chrono::Utc>) -> String {
@@ -1049,7 +1118,7 @@ impl<'a> AppTUI<'a> {
     }
 
     fn render_frequent(&mut self, frame: &mut Frame, area: Rect) {
-        let header = Row::new(vec!["#", "Count", "Command"]).style(
+        let header = Row::new(vec!["count", "command"]).style(
             Style::default()
                 .fg(self.theme.header)
                 .add_modifier(Modifier::BOLD),
@@ -1058,13 +1127,11 @@ impl<'a> AppTUI<'a> {
         let rows: Vec<Row> = self
             .frequent
             .iter()
-            .enumerate()
-            .filter(|(_, f)| self.matches_filter(&f.command))
-            .map(|(i, f)| {
+            .filter(|f| self.matches_filter(&f.command))
+            .map(|f| {
                 Row::new(vec![
-                    Cell::from((i + 1).to_string()),
                     Cell::from(f.count.to_string()),
-                    Cell::from(f.command.chars().take(80).collect::<String>()),
+                    Cell::from(f.command.as_str()),
                 ])
             })
             .collect();
@@ -1072,20 +1139,20 @@ impl<'a> AppTUI<'a> {
         let table = Table::new(
             rows,
             [
-                Constraint::Length(4),
                 Constraint::Length(6),
                 Constraint::Min(20),
             ],
         )
         .header(header)
-        .row_highlight_style(Style::default().bg(self.theme.row_highlight));
+        .row_highlight_style(self.row_highlight_style());
 
         frame.render_stateful_widget(table, area, &mut self.table_state);
     }
 
     fn render_commands(&mut self, frame: &mut Frame, area: Rect) {
-        let filter_lower = self.filter.to_lowercase();
-        let header = Row::new(vec!["", "Timestamp", "Command", "Directory"]).style(
+        let filter_ref = self.filter.clone();
+        let dir_width = dir_col_width(area.width);
+        let header = Row::new(vec!["", "timestamp", "command", "directory"]).style(
             Style::default()
                 .fg(self.theme.header)
                 .add_modifier(Modifier::BOLD),
@@ -1095,8 +1162,8 @@ impl<'a> AppTUI<'a> {
             .commands
             .iter()
             .map(|c| {
-                let cmd_cell = if !filter_lower.is_empty() {
-                    Cell::from(highlight_matches(&c.command, &filter_lower))
+                let cmd_cell = if !filter_ref.is_empty() {
+                    Cell::from(highlight_matches(&c.command, &filter_ref))
                 } else {
                     Cell::from(c.command.as_str())
                 };
@@ -1104,7 +1171,7 @@ impl<'a> AppTUI<'a> {
                     exit_code_cell(c.exit_code),
                     Cell::from(self.fmt_time(c.timestamp)),
                     cmd_cell,
-                    Cell::from(truncate_left(&shorten_dir(&c.directory, &self.home), 25)),
+                    Cell::from(truncate_left(&shorten_dir(&c.directory, &self.home), dir_width as usize)),
                 ])
             })
             .collect();
@@ -1115,18 +1182,18 @@ impl<'a> AppTUI<'a> {
                 Constraint::Length(2),
                 Constraint::Length(16),
                 Constraint::Min(20),
-                Constraint::Length(25),
+                Constraint::Length(dir_width),
             ],
         )
         .header(header)
-        .row_highlight_style(Style::default().bg(self.theme.row_highlight));
+        .row_highlight_style(self.row_highlight_style());
 
         frame.render_stateful_widget(table, area, &mut self.table_state);
     }
 
     fn render_local(&mut self, frame: &mut Frame, area: Rect) {
-        let filter_lower = self.filter.to_lowercase();
-        let header = Row::new(vec!["", "Timestamp", "Command"]).style(
+        let filter_ref = self.filter.clone();
+        let header = Row::new(vec!["", "timestamp", "command"]).style(
             Style::default()
                 .fg(self.theme.header)
                 .add_modifier(Modifier::BOLD),
@@ -1137,8 +1204,8 @@ impl<'a> AppTUI<'a> {
             .iter()
             .filter(|c| self.matches_filter(&c.command))
             .map(|c| {
-                let cmd_cell = if !filter_lower.is_empty() {
-                    Cell::from(highlight_matches(&c.command, &filter_lower))
+                let cmd_cell = if !filter_ref.is_empty() {
+                    Cell::from(highlight_matches(&c.command, &filter_ref))
                 } else {
                     Cell::from(c.command.as_str())
                 };
@@ -1159,13 +1226,13 @@ impl<'a> AppTUI<'a> {
             ],
         )
         .header(header)
-        .row_highlight_style(Style::default().bg(self.theme.row_highlight));
+        .row_highlight_style(self.row_highlight_style());
 
         frame.render_stateful_widget(table, area, &mut self.table_state);
     }
 
     fn render_aliases(&mut self, frame: &mut Frame, area: Rect) {
-        let header = Row::new(vec!["Alias", "Command", "Description", "Updated"]).style(
+        let header = Row::new(vec!["alias", "command", "description", "updated"]).style(
             Style::default()
                 .fg(self.theme.header)
                 .add_modifier(Modifier::BOLD),
@@ -1195,13 +1262,13 @@ impl<'a> AppTUI<'a> {
             ],
         )
         .header(header)
-        .row_highlight_style(Style::default().bg(self.theme.row_highlight));
+        .row_highlight_style(self.row_highlight_style());
 
         frame.render_stateful_widget(table, area, &mut self.table_state);
     }
 
     fn render_hosts(&mut self, frame: &mut Frame, area: Rect) {
-        let header = Row::new(vec!["ID", "Hostname", "Created"]).style(
+        let header = Row::new(vec!["id", "hostname", "created"]).style(
             Style::default()
                 .fg(self.theme.header)
                 .add_modifier(Modifier::BOLD),
@@ -1229,13 +1296,13 @@ impl<'a> AppTUI<'a> {
             ],
         )
         .header(header)
-        .row_highlight_style(Style::default().bg(self.theme.row_highlight));
+        .row_highlight_style(self.row_highlight_style());
 
         frame.render_stateful_widget(table, area, &mut self.table_state);
     }
 
     fn render_sessions(&mut self, frame: &mut Frame, area: Rect) {
-        let header = Row::new(vec!["Session", "Host", "Started", "Status"]).style(
+        let header = Row::new(vec!["session", "host", "started", "status"]).style(
             Style::default()
                 .fg(self.theme.header)
                 .add_modifier(Modifier::BOLD),
@@ -1271,13 +1338,14 @@ impl<'a> AppTUI<'a> {
             ],
         )
         .header(header)
-        .row_highlight_style(Style::default().bg(self.theme.row_highlight));
+        .row_highlight_style(self.row_highlight_style());
 
         frame.render_stateful_widget(table, area, &mut self.table_state);
     }
 
     fn render_session_commands(&mut self, frame: &mut Frame, area: Rect) {
-        let header = Row::new(vec!["", "ID", "Timestamp", "Command", "Directory", "R"]).style(
+        let dir_width = dir_col_width(area.width);
+        let header = Row::new(vec!["", "id", "timestamp", "command", "directory", "r"]).style(
             Style::default()
                 .fg(self.theme.header)
                 .add_modifier(Modifier::BOLD),
@@ -1293,8 +1361,8 @@ impl<'a> AppTUI<'a> {
                     exit_code_cell(c.exit_code),
                     Cell::from(c.id.to_string()),
                     Cell::from(self.fmt_time(c.timestamp)),
-                    Cell::from(c.command.chars().take(60).collect::<String>()),
-                    Cell::from(truncate_left(&shorten_dir(&c.directory, &self.home), 25)),
+                    Cell::from(c.command.as_str()),
+                    Cell::from(truncate_left(&shorten_dir(&c.directory, &self.home), dir_width as usize)),
                     Cell::from(r),
                 ])
             })
@@ -1307,18 +1375,18 @@ impl<'a> AppTUI<'a> {
                 Constraint::Length(6),
                 Constraint::Length(16),
                 Constraint::Min(20),
-                Constraint::Length(25),
+                Constraint::Length(dir_width),
                 Constraint::Length(1),
             ],
         )
         .header(header)
-        .row_highlight_style(Style::default().bg(self.theme.row_highlight));
+        .row_highlight_style(self.row_highlight_style());
 
         frame.render_stateful_widget(table, area, &mut self.table_state);
     }
 
     fn render_tokens(&mut self, frame: &mut Frame, area: Rect) {
-        let header = Row::new(vec!["ID", "Cmd", "Type", "Placeholder", "Value", "Created"]).style(
+        let header = Row::new(vec!["id", "cmd", "type", "placeholder", "value", "created"]).style(
             Style::default()
                 .fg(self.theme.header)
                 .add_modifier(Modifier::BOLD),
@@ -1357,46 +1425,80 @@ impl<'a> AppTUI<'a> {
             ],
         )
         .header(header)
-        .row_highlight_style(Style::default().bg(self.theme.row_highlight));
+        .row_highlight_style(self.row_highlight_style());
 
         frame.render_stateful_widget(table, area, &mut self.table_state);
     }
 
     fn render_status(&self, frame: &mut Frame, area: Rect) {
-        let text = match self.mode {
+        let (left, right, active) = match self.mode {
             Mode::Filter => {
-                let page_info = if self.is_paginated_tab() && self.total_pages() > 1 {
-                    format!(" pg {}/{}", self.page + 1, self.total_pages())
-                } else {
+                let left = if self.filter.is_empty() {
                     String::new()
-                };
-                if self.filter.is_empty() {
-                    page_info
                 } else {
-                    format!(" / {}_{}",  self.filter, page_info)
+                    format!(" / {}_", self.filter)
+                };
+
+                let mut right_parts = Vec::new();
+                let count_info = if self.is_paginated_tab() {
+                    let filtered = self.row_count;
+                    let total = self.total_paged_rows;
+                    if !self.filter.is_empty() && filtered != total {
+                        format!("{}:{}", format_thousands(filtered), format_thousands(total))
+                    } else {
+                        format_thousands(total)
+                    }
+                } else {
+                    let visible = self.filtered_row_count();
+                    let total = self.row_count;
+                    if !self.filter.is_empty() && visible != total {
+                        format!("{}:{}", format_thousands(visible), format_thousands(total))
+                    } else {
+                        format_thousands(total)
+                    }
+                };
+                right_parts.push(count_info);
+                if self.is_paginated_tab() && self.total_pages() > 1 {
+                    right_parts.push(format!("pg {}/{}", self.page + 1, self.total_pages()));
                 }
+                let right = format!("{} ", right_parts.join("  "));
+                (left, right, !self.filter.is_empty())
             }
-            Mode::Confirm => String::new(),
+            Mode::Confirm => (String::new(), String::new(), false),
             Mode::EditAlias => {
                 let field = match self.edit_field {
                     EditField::Command => "command",
                     EditField::Description => "description",
                 };
-                format!(
-                    " Editing {} [{}] | Tab=switch Enter=save Esc=cancel",
-                    self.edit_alias_name, field
+                (
+                    format!(
+                        " editing {} [{}] | Tab=switch Enter=save Esc=cancel",
+                        self.edit_alias_name, field
+                    ),
+                    String::new(),
+                    true,
                 )
             }
         };
 
-        let style = if !self.filter.is_empty() || matches!(self.mode, Mode::EditAlias) {
+        let width = area.width as usize;
+        let left_len = left.chars().count();
+        let right_len = right.chars().count();
+        let pad = width.saturating_sub(left_len + right_len);
+
+        let style_left = if active {
             Style::default().fg(self.theme.status_active)
         } else {
             Style::default().fg(self.theme.status_default)
         };
+        let style_right = Style::default().fg(self.theme.status_default);
 
-        let status = Paragraph::new(text).style(style);
-        frame.render_widget(status, area);
+        let line = Line::from(vec![
+            Span::styled(left, style_left),
+            Span::raw(" ".repeat(pad)),
+            Span::styled(right, style_right),
+        ]);
+        frame.render_widget(Paragraph::new(line), area);
     }
 
     fn render_confirm(&self, frame: &mut Frame, area: Rect) {
@@ -1406,7 +1508,7 @@ impl<'a> AppTUI<'a> {
             .block(
                 Block::default()
                     .borders(Borders::ALL)
-                    .title("Confirm Delete")
+                    .title("confirm delete")
                     .style(Style::default().fg(self.theme.popup_confirm)),
             )
             .style(Style::default().fg(self.theme.popup_text))
@@ -1441,37 +1543,66 @@ impl<'a> AppTUI<'a> {
     }
 
     fn render_help_tab(&self, frame: &mut Frame, area: Rect) {
-        let help = vec![
-            Line::from(vec![
-                Span::styled("Search", Style::default().fg(self.theme.header).add_modifier(Modifier::BOLD)),
-            ]),
-            Line::from("  type to filter    Enter  run command    Esc  clear / quit"),
+        let header_style = Style::default()
+            .fg(self.theme.header)
+            .add_modifier(Modifier::BOLD);
+
+        let mut help = vec![
+            Line::from(vec![Span::styled("search", header_style)]),
+            Line::from("  type to fuzzy filter    Enter  run command    Esc  clear / quit"),
             Line::from(""),
-            Line::from(vec![
-                Span::styled("Navigation", Style::default().fg(self.theme.header).add_modifier(Modifier::BOLD)),
-            ]),
+            Line::from(vec![Span::styled("navigation", header_style)]),
             Line::from("  ↑/↓       move up/down"),
             Line::from("  ←/→       page prev/next (History, Sessions)"),
             Line::from("  Tab       next tab           Shift+Tab  prev tab"),
             Line::from("  Alt+1..8  jump to tab"),
             Line::from(""),
-            Line::from(vec![
-                Span::styled("Quick Jump", Style::default().fg(self.theme.header).add_modifier(Modifier::BOLD)),
-            ]),
+            Line::from(vec![Span::styled("quick jump", header_style)]),
             Line::from("  ^H  History        ^L  Local (cwd)     ^S  Current session"),
             Line::from(""),
-            Line::from(vec![
-                Span::styled("Actions", Style::default().fg(self.theme.header).add_modifier(Modifier::BOLD)),
-            ]),
+            Line::from(vec![Span::styled("actions", header_style)]),
             Line::from("  ^T  toggle relative time"),
             Line::from("  ^D  delete selected"),
             Line::from("  ^E  edit alias (Aliases tab)"),
             Line::from("  ^V  reveal token values (Tokens tab)"),
+            Line::from("  ^Y  copy selected command to clipboard"),
             Line::from("  ^C  quit"),
         ];
+
+        if let Ok(stats) = self.db.get_stats() {
+            help.push(Line::from(""));
+            help.push(Line::from(vec![Span::styled(
+                "database stats",
+                header_style,
+            )]));
+            help.push(Line::from(format!(
+                "  Commands: {}    Sessions: {}    Hosts: {}",
+                format_thousands(stats.total_commands),
+                format_thousands(stats.total_sessions),
+                format_thousands(stats.total_hosts),
+            )));
+            help.push(Line::from(format!(
+                "  Redacted: {}    Tokens: {}",
+                format_thousands(stats.redacted_commands),
+                format_thousands(stats.stored_tokens),
+            )));
+            if let (Some(oldest), Some(newest)) = (stats.oldest_entry, stats.newest_entry) {
+                help.push(Line::from(format!(
+                    "  Date range: {}  to  {}",
+                    oldest.format("%Y-%m-%d %H:%M"),
+                    newest.format("%Y-%m-%d %H:%M"),
+                )));
+            }
+        }
+
         let p = Paragraph::new(help).style(Style::default().fg(self.theme.tab_text));
         frame.render_widget(p, area);
     }
+}
+
+fn dir_col_width(term_width: u16) -> u16 {
+    // ~25% of terminal width, clamped to 20..60
+    ((term_width as u32) / 4).clamp(20, 60) as u16
 }
 
 fn truncate(s: &str, max: usize) -> String {
@@ -1512,27 +1643,45 @@ fn exit_code_cell(exit_code: Option<i32>) -> Cell<'static> {
     }
 }
 
-fn highlight_matches<'a>(text: &'a str, filter_lower: &str) -> Line<'a> {
-    if filter_lower.is_empty() {
+fn highlight_matches<'a>(text: &'a str, filter: &str) -> Line<'a> {
+    if filter.is_empty() {
         return Line::from(text);
     }
-    let text_lower = text.to_lowercase();
+    let Some(indices) = AppTUI::fuzzy_match_indices(filter, text) else {
+        return Line::from(text);
+    };
+    let highlight_set: std::collections::HashSet<usize> = indices.into_iter().collect();
+    let text_chars: Vec<char> = text.chars().collect();
     let mut spans: Vec<Span<'a>> = Vec::new();
-    let mut pos = 0;
-    while let Some(start) = text_lower[pos..].find(filter_lower) {
-        let abs_start = pos + start;
-        let abs_end = abs_start + filter_lower.len();
-        if abs_start > pos {
-            spans.push(Span::raw(text[pos..abs_start].to_string()));
+    let mut buf = String::new();
+    let mut in_highlight = false;
+
+    for (i, &ch) in text_chars.iter().enumerate() {
+        let is_match = highlight_set.contains(&i);
+        if is_match != in_highlight {
+            if !buf.is_empty() {
+                if in_highlight {
+                    spans.push(Span::styled(
+                        std::mem::take(&mut buf),
+                        Style::default().add_modifier(Modifier::BOLD).fg(Color::Yellow),
+                    ));
+                } else {
+                    spans.push(Span::raw(std::mem::take(&mut buf)));
+                }
+            }
+            in_highlight = is_match;
         }
-        spans.push(Span::styled(
-            text[abs_start..abs_end].to_string(),
-            Style::default().add_modifier(Modifier::BOLD).fg(Color::Yellow),
-        ));
-        pos = abs_end;
+        buf.push(ch);
     }
-    if pos < text.len() {
-        spans.push(Span::raw(text[pos..].to_string()));
+    if !buf.is_empty() {
+        if in_highlight {
+            spans.push(Span::styled(
+                buf,
+                Style::default().add_modifier(Modifier::BOLD).fg(Color::Yellow),
+            ));
+        } else {
+            spans.push(Span::raw(buf));
+        }
     }
     Line::from(spans)
 }

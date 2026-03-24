@@ -82,16 +82,24 @@ fn generate_bash_integration() -> String {
 # One session per shell instance
 export ZAM_SESSION_ID="bash-$$-$(date +%s)"
 
-# Function to log commands
-log_command() {
-    zam log "$1" --session-id "$ZAM_SESSION_ID"
+# Log all commands with their exit code
+_zam_last_cmd=""
+_zam_preexec() {
+    _zam_last_cmd="$1"
 }
+trap '_zam_preexec "$BASH_COMMAND"' DEBUG
+
+_zam_precmd() {
+    local rc=$?
+    if [[ -n "$_zam_last_cmd" ]]; then
+        zam log "$_zam_last_cmd" -E "$rc" --session-id "$ZAM_SESSION_ID"
+    fi
+    _zam_last_cmd=""
+}
+PROMPT_COMMAND="_zam_precmd;${PROMPT_COMMAND:+ $PROMPT_COMMAND}"
 
 # Close session on shell exit
 trap 'zam end-session "$ZAM_SESSION_ID" 2>/dev/null' EXIT
-
-# Hook to log commands after execution
-PROMPT_COMMAND="log_command \"\$BASH_COMMAND\"; $PROMPT_COMMAND"
 
 # Interactive history search with fzf (Ctrl+R)
 bind -x '"\C-r": "READLINE_LINE=$(zam fzf | fzf --height 50% --reverse --tac 2>/dev/tty); READLINE_POINT=${#READLINE_LINE}"'
@@ -123,9 +131,18 @@ function _zam_exit --on-event fish_exit
     zam end-session "$ZAM_SESSION_ID" 2>/dev/null
 end
 
-# Function to log commands
-function zam_log_command --on-event fish_preexec
-    zam log "$argv[1]" --session-id "$ZAM_SESSION_ID" &
+# Log all commands with their exit code
+set -g _zam_last_cmd ""
+function _zam_preexec --on-event fish_preexec
+    set -g _zam_last_cmd "$argv[1]"
+end
+
+function _zam_postexec --on-event fish_postexec
+    set -l rc $status
+    if test -n "$_zam_last_cmd"
+        zam log "$_zam_last_cmd" -E "$rc" --session-id "$ZAM_SESSION_ID"
+    end
+    set -g _zam_last_cmd ""
 end
 
 # Interactive history search with fzf (Ctrl+R)
