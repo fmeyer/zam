@@ -18,6 +18,7 @@ use ratatui::{
 use std::fs::File;
 
 /// Color theme for the TUI, with dark and light variants.
+/// Palette derived from Matrix and Photophobia Zed themes.
 struct Theme {
     tab_number: Color,
     tab_text: Color,
@@ -29,36 +30,51 @@ struct Theme {
     popup_text: Color,
     popup_confirm: Color,
     popup_accent: Color,
+    match_highlight: Color,
+    success: Color,
+    error: Color,
+    flash_bg: Color,
+    flash_fg: Color,
 }
 
 impl Theme {
     fn dark() -> Self {
         Self {
-            tab_number: Color::DarkGray,
-            tab_text: Color::White,
-            tab_highlight: Color::Cyan,
-            header: Color::Yellow,
-            row_highlight: Color::DarkGray,
-            status_default: Color::DarkGray,
-            status_active: Color::Yellow,
-            popup_text: Color::White,
-            popup_confirm: Color::Red,
-            popup_accent: Color::Cyan,
+            tab_number: Color::Rgb(0x58, 0x58, 0x58),    // matrix dark text.placeholder
+            tab_text: Color::Rgb(0xbc, 0xbc, 0xbc),      // matrix dark text
+            tab_highlight: Color::Rgb(0x5f, 0xb4, 0xb4), // matrix dark accent teal
+            header: Color::Rgb(0x4a, 0x98, 0x98),        // matrix dark comment/dim teal
+            row_highlight: Color::Rgb(0x30, 0x35, 0x40),  // matrix dark element.selected
+            status_default: Color::Rgb(0x58, 0x58, 0x58), // matrix dark text.placeholder
+            status_active: Color::Rgb(0x5f, 0xb4, 0xb4),  // matrix dark accent teal
+            popup_text: Color::Rgb(0xbc, 0xbc, 0xbc),     // matrix dark text
+            popup_confirm: Color::Rgb(0xc6, 0x95, 0xc6),  // matrix dark magenta
+            popup_accent: Color::Rgb(0x5f, 0xb4, 0xb4),   // matrix dark accent teal
+            match_highlight: Color::Rgb(0x5f, 0xb4, 0xb4), // matrix dark accent teal
+            success: Color::Rgb(0x99, 0xc7, 0x94),        // matrix dark green
+            error: Color::Rgb(0xc6, 0x95, 0xc6),          // matrix dark magenta
+            flash_bg: Color::Rgb(0x99, 0xc7, 0x94),       // matrix dark green
+            flash_fg: Color::Rgb(0x15, 0x19, 0x1e),       // matrix dark background
         }
     }
 
     fn light() -> Self {
         Self {
-            tab_number: Color::Gray,
-            tab_text: Color::Black,
-            tab_highlight: Color::Blue,
-            header: Color::DarkGray,
-            row_highlight: Color::Rgb(220, 220, 220),
-            status_default: Color::Gray,
-            status_active: Color::Blue,
-            popup_text: Color::Black,
-            popup_confirm: Color::Red,
-            popup_accent: Color::Blue,
+            tab_number: Color::Rgb(0x99, 0x99, 0x57),    // photophobia line_number
+            tab_text: Color::Rgb(0x42, 0x42, 0x42),      // photophobia foreground
+            tab_highlight: Color::Rgb(0x2a, 0x8d, 0xc5),  // photophobia blue
+            header: Color::Rgb(0x99, 0x99, 0x57),         // photophobia line_number
+            row_highlight: Color::Rgb(0xc7, 0xde, 0xff),   // photophobia element.selected
+            status_default: Color::Rgb(0x99, 0x99, 0x57),  // photophobia line_number
+            status_active: Color::Rgb(0x2a, 0x8d, 0xc5),   // photophobia blue
+            popup_text: Color::Rgb(0x42, 0x42, 0x42),      // photophobia foreground
+            popup_confirm: Color::Rgb(0xb8, 0x5c, 0x57),   // photophobia red
+            popup_accent: Color::Rgb(0x2a, 0x8d, 0xc5),    // photophobia blue
+            match_highlight: Color::Rgb(0x1a, 0x3a, 0x6b),  // photophobia comment blue
+            success: Color::Rgb(0x57, 0x86, 0x4e),         // photophobia green
+            error: Color::Rgb(0xb8, 0x5c, 0x57),           // photophobia red
+            flash_bg: Color::Rgb(0x57, 0x86, 0x4e),        // photophobia green
+            flash_fg: Color::Rgb(0xf9, 0xf9, 0xee),        // photophobia background
         }
     }
 
@@ -709,15 +725,33 @@ impl<'a> AppTUI<'a> {
         Ok(())
     }
 
+    /// Restore the original unredacted command by replacing placeholders with
+    /// their stored token values. Returns `None` if the command is redacted but
+    /// cannot be fully restored (missing tokens).
+    fn unredact_command(&self, entry: &CommandEntry) -> Option<String> {
+        if !entry.redacted {
+            return Some(entry.command.clone());
+        }
+        let tokens = self.db.get_tokens_for_command(entry.id).ok()?;
+        if tokens.is_empty() {
+            return None;
+        }
+        let mut cmd = entry.command.clone();
+        for token in &tokens {
+            cmd = cmd.replace(&token.placeholder, &token.original_value);
+        }
+        Some(cmd)
+    }
+
     /// Get the command string for the currently selected row, if applicable.
     fn selected_command_text(&self) -> Option<String> {
         let idx = self.resolve_selected()?;
         match self.tab {
-            Tab::Commands => self.commands.get(idx).map(|c| c.command.clone()),
-            Tab::Local => self.local_commands.get(idx).map(|c| c.command.clone()),
+            Tab::Commands => self.commands.get(idx).and_then(|c| self.unredact_command(c)),
+            Tab::Local => self.local_commands.get(idx).and_then(|c| self.unredact_command(c)),
             Tab::Frequent => self.frequent.get(idx).map(|f| f.command.clone()),
             Tab::Sessions if self.session_detail_id.is_some() => {
-                self.session_commands.get(idx).map(|c| c.command.clone())
+                self.session_commands.get(idx).and_then(|c| self.unredact_command(c))
             }
             _ => None,
         }
@@ -901,16 +935,24 @@ impl<'a> AppTUI<'a> {
                     if let Some(idx) = self.resolve_selected()
                         && let Some(cmd) = self.local_commands.get(idx)
                     {
-                        self.selected_command = Some(cmd.command.clone());
-                        self.running = false;
+                        if let Some(resolved) = self.unredact_command(cmd) {
+                            self.selected_command = Some(resolved);
+                            self.running = false;
+                        } else {
+                            self.status = Some("Cannot execute: redacted command has no stored tokens".into());
+                        }
                     }
                 }
                 KeyCode::Enter if self.tab == Tab::Sessions && self.session_detail_id.is_some() => {
                     if let Some(idx) = self.resolve_selected()
                         && let Some(cmd) = self.session_commands.get(idx)
                     {
-                        self.selected_command = Some(cmd.command.clone());
-                        self.running = false;
+                        if let Some(resolved) = self.unredact_command(cmd) {
+                            self.selected_command = Some(resolved);
+                            self.running = false;
+                        } else {
+                            self.status = Some("Cannot execute: redacted command has no stored tokens".into());
+                        }
                     }
                 }
                 KeyCode::Enter if self.tab == Tab::Sessions && self.session_detail_id.is_none() => {
@@ -932,8 +974,12 @@ impl<'a> AppTUI<'a> {
                     if let Some(idx) = self.resolve_selected()
                         && let Some(cmd) = self.commands.get(idx)
                     {
-                        self.selected_command = Some(cmd.command.clone());
-                        self.running = false;
+                        if let Some(resolved) = self.unredact_command(cmd) {
+                            self.selected_command = Some(resolved);
+                            self.running = false;
+                        } else {
+                            self.status = Some("Cannot execute: redacted command has no stored tokens".into());
+                        }
                     }
                 }
                 KeyCode::Enter => {}
@@ -1079,7 +1125,7 @@ impl<'a> AppTUI<'a> {
             .copied_at
             .is_some_and(|t| t.elapsed() < std::time::Duration::from_millis(500));
         if flash {
-            Style::default().bg(Color::Green).fg(Color::Black)
+            Style::default().bg(self.theme.flash_bg).fg(self.theme.flash_fg)
         } else {
             Style::default().bg(self.theme.row_highlight)
         }
@@ -1162,12 +1208,12 @@ impl<'a> AppTUI<'a> {
             .iter()
             .map(|c| {
                 let cmd_cell = if !filter_ref.is_empty() {
-                    Cell::from(highlight_matches(&c.command, &filter_ref))
+                    Cell::from(highlight_matches(&c.command, &filter_ref, self.theme.match_highlight))
                 } else {
                     Cell::from(c.command.as_str())
                 };
                 Row::new(vec![
-                    exit_code_cell(c.exit_code),
+                    exit_code_cell(c.exit_code, &self.theme),
                     Cell::from(self.fmt_time(c.timestamp)),
                     cmd_cell,
                     Cell::from(truncate_left(
@@ -1207,12 +1253,12 @@ impl<'a> AppTUI<'a> {
             .filter(|c| self.matches_filter(&c.command))
             .map(|c| {
                 let cmd_cell = if !filter_ref.is_empty() {
-                    Cell::from(highlight_matches(&c.command, &filter_ref))
+                    Cell::from(highlight_matches(&c.command, &filter_ref, self.theme.match_highlight))
                 } else {
                     Cell::from(c.command.as_str())
                 };
                 Row::new(vec![
-                    exit_code_cell(c.exit_code),
+                    exit_code_cell(c.exit_code, &self.theme),
                     Cell::from(self.fmt_time(c.timestamp)),
                     cmd_cell,
                 ])
@@ -1360,7 +1406,7 @@ impl<'a> AppTUI<'a> {
             .map(|c| {
                 let r = if c.redacted { "Y" } else { "" };
                 Row::new(vec![
-                    exit_code_cell(c.exit_code),
+                    exit_code_cell(c.exit_code, &self.theme),
                     Cell::from(c.id.to_string()),
                     Cell::from(self.fmt_time(c.timestamp)),
                     Cell::from(c.command.as_str()),
@@ -1635,14 +1681,14 @@ fn shorten_dir(path: &str, home: &str) -> String {
     path.to_string()
 }
 
-fn exit_code_cell(exit_code: Option<i32>) -> Cell<'static> {
+fn exit_code_cell(exit_code: Option<i32>, theme: &Theme) -> Cell<'static> {
     match exit_code {
-        None | Some(0) => Cell::from(Span::styled("\u{2713}", Style::default().fg(Color::Green))),
-        Some(_) => Cell::from(Span::styled("\u{2717}", Style::default().fg(Color::Red))),
+        None | Some(0) => Cell::from(Span::styled("\u{2713}", Style::default().fg(theme.success))),
+        Some(_) => Cell::from(Span::styled("\u{2717}", Style::default().fg(theme.error))),
     }
 }
 
-fn highlight_matches<'a>(text: &'a str, filter: &str) -> Line<'a> {
+fn highlight_matches<'a>(text: &'a str, filter: &str, highlight_color: Color) -> Line<'a> {
     if filter.is_empty() {
         return Line::from(text);
     }
@@ -1664,7 +1710,7 @@ fn highlight_matches<'a>(text: &'a str, filter: &str) -> Line<'a> {
                         std::mem::take(&mut buf),
                         Style::default()
                             .add_modifier(Modifier::BOLD)
-                            .fg(Color::Yellow),
+                            .fg(highlight_color),
                     ));
                 } else {
                     spans.push(Span::raw(std::mem::take(&mut buf)));
@@ -1680,7 +1726,7 @@ fn highlight_matches<'a>(text: &'a str, filter: &str) -> Line<'a> {
                 buf,
                 Style::default()
                     .add_modifier(Modifier::BOLD)
-                    .fg(Color::Yellow),
+                    .fg(highlight_color),
             ));
         } else {
             spans.push(Span::raw(buf));
