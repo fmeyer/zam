@@ -3,3 +3,4 @@
 /result
 .claude/*
 .direnv/
+.DS_Store
