@@ -652,11 +652,12 @@ impl Database {
         };
 
         let sql = format!(
-            "SELECT MAX(id), session_id, command, MAX(timestamp) as ts, directory, redacted, exit_code
+            "SELECT id, session_id, command, timestamp, directory, redacted, exit_code
              FROM commands
-             {where_clause}
-             GROUP BY command, directory
-             ORDER BY ts DESC
+             WHERE id IN (
+                 SELECT MAX(id) FROM commands {where_clause} GROUP BY command
+             )
+             ORDER BY timestamp DESC
              LIMIT ?1 OFFSET ?2"
         );
 
@@ -702,7 +703,7 @@ impl Database {
             "SELECT COUNT(*) FROM (
                 SELECT 1 FROM commands
                 WHERE directory != '<imported>'{where_extra}
-                GROUP BY command, directory
+                GROUP BY command
             )"
         );
 

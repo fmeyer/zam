@@ -1,0 +1,126 @@
+name: Version Bump
+
+on:
+  pull_request:
+    types: [closed]
+    branches: [master]
+
+permissions:
+  contents: write
+
+jobs:
+  bump:
+    name: Bump version & tag
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    steps:
+      - name: Generate GitHub App token
+        uses: actions/create-github-app-token@v1
+        id: app-token
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          token: ${{ steps.app-token.outputs.token }}
+
+      - name: Determine bump kind from PR title
+        id: kind
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          TYPE=$(echo "$PR_TITLE" | sed -n 's/^\([a-z]*\).*/\1/p')
+
+          BREAKING=false
+          if echo "$PR_TITLE" | grep -qE '^[a-z]+(\(.+\))?!:'; then
+            BREAKING=true
+          elif echo "$PR_BODY" | grep -qiE '^BREAKING[ -]CHANGE:'; then
+            BREAKING=true
+          fi
+
+          if [ "$BREAKING" = "true" ]; then
+            echo "bump=major" >> "$GITHUB_OUTPUT"
+          else
+            case "$TYPE" in
+              feat)     echo "bump=minor" >> "$GITHUB_OUTPUT" ;;
+              fix|perf) echo "bump=patch" >> "$GITHUB_OUTPUT" ;;
+              *)        echo "bump=patch" >> "$GITHUB_OUTPUT" ;;
+            esac
+          fi
+
+          echo "type=$TYPE" >> "$GITHUB_OUTPUT"
+          echo "Detected type='$TYPE' → bump=$(grep bump "$GITHUB_OUTPUT" | cut -d= -f2)"
+
+      - name: Compute next version
+        id: version
+        run: |
+          LATEST=$(git tag --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1)
+          LATEST=${LATEST:-v0.1.0}
+          echo "latest=$LATEST"
+
+          VER=${LATEST#v}
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$VER"
+
+          BUMP="${{ steps.kind.outputs.bump }}"
+          if [ "$BUMP" = "major" ]; then
+            MAJOR=$((MAJOR + 1))
+            MINOR=0
+            PATCH=0
+          elif [ "$BUMP" = "minor" ]; then
+            MINOR=$((MINOR + 1))
+            PATCH=0
+          else
+            PATCH=$((PATCH + 1))
+          fi
+
+          NEXT="$MAJOR.$MINOR.$PATCH"
+          echo "next=$NEXT"   >> "$GITHUB_OUTPUT"
+          echo "tag=v$NEXT"   >> "$GITHUB_OUTPUT"
+          echo "Next version: $NEXT"
+
+      - name: Install cargo-edit
+        run: cargo install cargo-set-version
+
+      - name: Bump crate version
+        run: cargo set-version "${{ steps.version.outputs.next }}"
+
+      - name: Commit & tag
+        run: |
+          NEXT="${{ steps.version.outputs.next }}"
+          TAG="${{ steps.version.outputs.tag }}"
+
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git add -A
+          git diff --cached --quiet && { echo "No version changes to commit"; exit 0; }
+
+          git commit -m "chore(release): $TAG"
+          git tag -a "$TAG" -m "Release $TAG"
+          git push origin master --follow-tags
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          TAG="${{ steps.version.outputs.tag }}"
+          PREV=$(git tag --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sed -n '2p')
+
+          if [ -n "$PREV" ]; then
+            NOTES=$(git log "${PREV}..${TAG}" --pretty=format:"- %s" --no-merges | grep -v "chore(release):")
+          else
+            NOTES="Initial release"
+          fi
+
+          gh release create "$TAG" \
+            --title "$TAG" \
+            --notes "$NOTES" \
+            --verify-tag
+
+      - name: Publish to crates.io
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: cargo publish

@@ -1,7 +1,10 @@
 # zam(1) - shell history manager
 
 [![CI](https://github.com/fmeyer/zam/actions/workflows/ci.yml/badge.svg)](https://github.com/fmeyer/zam/actions/workflows/ci.yml)
+[![Crates.io](https://img.shields.io/crates/v/zam.svg)](https://crates.io/crates/zam)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
+![zam](images/zam.webp)
 
 ## SYNOPSIS
 
@@ -9,8 +12,10 @@
 
 ## DESCRIPTION
 
-**zam** is a shell history manager with automatic sensitive data redaction,
-alias management, SQLite storage, and multi-host session tracking.
+**zam** is an opinionated shell history manager that replaces Ctrl+R with
+a local-directory-aware, session-tracked, redaction-first TUI. It knows
+where you are, what you ran, and which parts were secrets -- so you can
+recall commands without leaking credentials or scrolling through noise.
 
 ## INSTALL
 
