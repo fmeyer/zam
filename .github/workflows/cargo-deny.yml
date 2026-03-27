@@ -2,7 +2,7 @@ name: Cargo Deny
 
 on:
   push:
-    branches: [master, main]
+    branches: [main]
   pull_request:
   schedule:
     # Run weekly to catch new advisories
