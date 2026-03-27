@@ -7,9 +7,7 @@ release-build:
 	cargo build --release
 
 release:
-	@LATEST=$$(git tag --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$$' | head -1); \
-	LATEST=$${LATEST:-v0.0.0}; \
-	VER=$${LATEST#v}; \
+	@VER=$$(grep '^version' Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/'); \
 	MAJOR=$$(echo $$VER | cut -d. -f1); \
 	MINOR=$$(echo $$VER | cut -d. -f2); \
 	PATCH=$$(echo $$VER | cut -d. -f3); \
@@ -23,7 +21,7 @@ release:
 	esac; \
 	NEXT="$$MAJOR.$$MINOR.$$PATCH"; \
 	TAG="v$$NEXT"; \
-	echo "$$LATEST -> $$TAG ($$LAST_TYPE)"; \
+	echo "$$VER -> $$NEXT ($$LAST_TYPE)"; \
 	cargo set-version "$$NEXT"; \
 	git add Cargo.toml Cargo.lock; \
 	git commit -m "chore(release): $$TAG"; \
