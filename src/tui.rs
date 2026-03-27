@@ -40,41 +40,41 @@ struct Theme {
 impl Theme {
     fn dark() -> Self {
         Self {
-            tab_number: Color::Rgb(0x58, 0x58, 0x58),    // matrix dark text.placeholder
-            tab_text: Color::Rgb(0xbc, 0xbc, 0xbc),      // matrix dark text
+            tab_number: Color::Rgb(0x58, 0x58, 0x58), // matrix dark text.placeholder
+            tab_text: Color::Rgb(0xbc, 0xbc, 0xbc),   // matrix dark text
             tab_highlight: Color::Rgb(0x5f, 0xb4, 0xb4), // matrix dark accent teal
-            header: Color::Rgb(0x4a, 0x98, 0x98),        // matrix dark comment/dim teal
-            row_highlight: Color::Rgb(0x30, 0x35, 0x40),  // matrix dark element.selected
+            header: Color::Rgb(0x4a, 0x98, 0x98),     // matrix dark comment/dim teal
+            row_highlight: Color::Rgb(0x30, 0x35, 0x40), // matrix dark element.selected
             status_default: Color::Rgb(0x58, 0x58, 0x58), // matrix dark text.placeholder
-            status_active: Color::Rgb(0x5f, 0xb4, 0xb4),  // matrix dark accent teal
-            popup_text: Color::Rgb(0xbc, 0xbc, 0xbc),     // matrix dark text
-            popup_confirm: Color::Rgb(0xc6, 0x95, 0xc6),  // matrix dark magenta
-            popup_accent: Color::Rgb(0x5f, 0xb4, 0xb4),   // matrix dark accent teal
+            status_active: Color::Rgb(0x5f, 0xb4, 0xb4), // matrix dark accent teal
+            popup_text: Color::Rgb(0xbc, 0xbc, 0xbc), // matrix dark text
+            popup_confirm: Color::Rgb(0xc6, 0x95, 0xc6), // matrix dark magenta
+            popup_accent: Color::Rgb(0x5f, 0xb4, 0xb4), // matrix dark accent teal
             match_highlight: Color::Rgb(0x5f, 0xb4, 0xb4), // matrix dark accent teal
-            success: Color::Rgb(0x99, 0xc7, 0x94),        // matrix dark green
-            error: Color::Rgb(0xc6, 0x95, 0xc6),          // matrix dark magenta
-            flash_bg: Color::Rgb(0x99, 0xc7, 0x94),       // matrix dark green
-            flash_fg: Color::Rgb(0x15, 0x19, 0x1e),       // matrix dark background
+            success: Color::Rgb(0x99, 0xc7, 0x94),    // matrix dark green
+            error: Color::Rgb(0xc6, 0x95, 0xc6),      // matrix dark magenta
+            flash_bg: Color::Rgb(0x99, 0xc7, 0x94),   // matrix dark green
+            flash_fg: Color::Rgb(0x15, 0x19, 0x1e),   // matrix dark background
         }
     }
 
     fn light() -> Self {
         Self {
-            tab_number: Color::Rgb(0x99, 0x99, 0x57),    // photophobia line_number
-            tab_text: Color::Rgb(0x42, 0x42, 0x42),      // photophobia foreground
-            tab_highlight: Color::Rgb(0x2a, 0x8d, 0xc5),  // photophobia blue
-            header: Color::Rgb(0x99, 0x99, 0x57),         // photophobia line_number
-            row_highlight: Color::Rgb(0xc7, 0xde, 0xff),   // photophobia element.selected
-            status_default: Color::Rgb(0x99, 0x99, 0x57),  // photophobia line_number
-            status_active: Color::Rgb(0x2a, 0x8d, 0xc5),   // photophobia blue
-            popup_text: Color::Rgb(0x42, 0x42, 0x42),      // photophobia foreground
-            popup_confirm: Color::Rgb(0xb8, 0x5c, 0x57),   // photophobia red
-            popup_accent: Color::Rgb(0x2a, 0x8d, 0xc5),    // photophobia blue
-            match_highlight: Color::Rgb(0x1a, 0x3a, 0x6b),  // photophobia comment blue
-            success: Color::Rgb(0x57, 0x86, 0x4e),         // photophobia green
-            error: Color::Rgb(0xb8, 0x5c, 0x57),           // photophobia red
-            flash_bg: Color::Rgb(0x57, 0x86, 0x4e),        // photophobia green
-            flash_fg: Color::Rgb(0xf9, 0xf9, 0xee),        // photophobia background
+            tab_number: Color::Rgb(0x99, 0x99, 0x57), // photophobia line_number
+            tab_text: Color::Rgb(0x42, 0x42, 0x42),   // photophobia foreground
+            tab_highlight: Color::Rgb(0x2a, 0x8d, 0xc5), // photophobia blue
+            header: Color::Rgb(0x99, 0x99, 0x57),     // photophobia line_number
+            row_highlight: Color::Rgb(0xc7, 0xde, 0xff), // photophobia element.selected
+            status_default: Color::Rgb(0x99, 0x99, 0x57), // photophobia line_number
+            status_active: Color::Rgb(0x2a, 0x8d, 0xc5), // photophobia blue
+            popup_text: Color::Rgb(0x42, 0x42, 0x42), // photophobia foreground
+            popup_confirm: Color::Rgb(0xb8, 0x5c, 0x57), // photophobia red
+            popup_accent: Color::Rgb(0x2a, 0x8d, 0xc5), // photophobia blue
+            match_highlight: Color::Rgb(0x1a, 0x3a, 0x6b), // photophobia comment blue
+            success: Color::Rgb(0x57, 0x86, 0x4e),    // photophobia green
+            error: Color::Rgb(0xb8, 0x5c, 0x57),      // photophobia red
+            flash_bg: Color::Rgb(0x57, 0x86, 0x4e),   // photophobia green
+            flash_fg: Color::Rgb(0xf9, 0xf9, 0xee),   // photophobia background
         }
     }
 
@@ -747,12 +747,19 @@ impl<'a> AppTUI<'a> {
     fn selected_command_text(&self) -> Option<String> {
         let idx = self.resolve_selected()?;
         match self.tab {
-            Tab::Commands => self.commands.get(idx).and_then(|c| self.unredact_command(c)),
-            Tab::Local => self.local_commands.get(idx).and_then(|c| self.unredact_command(c)),
+            Tab::Commands => self
+                .commands
+                .get(idx)
+                .and_then(|c| self.unredact_command(c)),
+            Tab::Local => self
+                .local_commands
+                .get(idx)
+                .and_then(|c| self.unredact_command(c)),
             Tab::Frequent => self.frequent.get(idx).map(|f| f.command.clone()),
-            Tab::Sessions if self.session_detail_id.is_some() => {
-                self.session_commands.get(idx).and_then(|c| self.unredact_command(c))
-            }
+            Tab::Sessions if self.session_detail_id.is_some() => self
+                .session_commands
+                .get(idx)
+                .and_then(|c| self.unredact_command(c)),
             _ => None,
         }
     }
@@ -939,7 +946,9 @@ impl<'a> AppTUI<'a> {
                             self.selected_command = Some(resolved);
                             self.running = false;
                         } else {
-                            self.status = Some("Cannot execute: redacted command has no stored tokens".into());
+                            self.status = Some(
+                                "Cannot execute: redacted command has no stored tokens".into(),
+                            );
                         }
                     }
                 }
@@ -951,7 +960,9 @@ impl<'a> AppTUI<'a> {
                             self.selected_command = Some(resolved);
                             self.running = false;
                         } else {
-                            self.status = Some("Cannot execute: redacted command has no stored tokens".into());
+                            self.status = Some(
+                                "Cannot execute: redacted command has no stored tokens".into(),
+                            );
                         }
                     }
                 }
@@ -978,7 +989,9 @@ impl<'a> AppTUI<'a> {
                             self.selected_command = Some(resolved);
                             self.running = false;
                         } else {
-                            self.status = Some("Cannot execute: redacted command has no stored tokens".into());
+                            self.status = Some(
+                                "Cannot execute: redacted command has no stored tokens".into(),
+                            );
                         }
                     }
                 }
@@ -1125,7 +1138,9 @@ impl<'a> AppTUI<'a> {
             .copied_at
             .is_some_and(|t| t.elapsed() < std::time::Duration::from_millis(500));
         if flash {
-            Style::default().bg(self.theme.flash_bg).fg(self.theme.flash_fg)
+            Style::default()
+                .bg(self.theme.flash_bg)
+                .fg(self.theme.flash_fg)
         } else {
             Style::default().bg(self.theme.row_highlight)
         }
@@ -1208,7 +1223,11 @@ impl<'a> AppTUI<'a> {
             .iter()
             .map(|c| {
                 let cmd_cell = if !filter_ref.is_empty() {
-                    Cell::from(highlight_matches(&c.command, &filter_ref, self.theme.match_highlight))
+                    Cell::from(highlight_matches(
+                        &c.command,
+                        &filter_ref,
+                        self.theme.match_highlight,
+                    ))
                 } else {
                     Cell::from(c.command.as_str())
                 };
@@ -1253,7 +1272,11 @@ impl<'a> AppTUI<'a> {
             .filter(|c| self.matches_filter(&c.command))
             .map(|c| {
                 let cmd_cell = if !filter_ref.is_empty() {
-                    Cell::from(highlight_matches(&c.command, &filter_ref, self.theme.match_highlight))
+                    Cell::from(highlight_matches(
+                        &c.command,
+                        &filter_ref,
+                        self.theme.match_highlight,
+                    ))
                 } else {
                     Cell::from(c.command.as_str())
                 };
