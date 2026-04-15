@@ -57,6 +57,6 @@ jobs:
           tar czf "${name}.tar.gz" "$name"
 
       - name: Upload artifact
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: zam-*.tar.gz
