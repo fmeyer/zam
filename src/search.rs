@@ -198,7 +198,7 @@ impl SearchEngine {
         }
 
         // Sort by timestamp (descending)
-        results.sort_by(|a, b| b.entry.timestamp.cmp(&a.entry.timestamp));
+        results.sort_by_key(|r| std::cmp::Reverse(r.entry.timestamp));
 
         if results.len() > self.max_results {
             results.truncate(self.max_results);
@@ -227,7 +227,7 @@ impl SearchEngine {
         }
 
         // Sort by timestamp (descending)
-        results.sort_by(|a, b| b.entry.timestamp.cmp(&a.entry.timestamp));
+        results.sort_by_key(|r| std::cmp::Reverse(r.entry.timestamp));
 
         if results.len() > self.max_results {
             results.truncate(self.max_results);
@@ -245,7 +245,7 @@ impl SearchEngine {
         }
 
         let mut sorted_commands: Vec<(String, usize)> = command_counts.into_iter().collect();
-        sorted_commands.sort_by(|a, b| b.1.cmp(&a.1));
+        sorted_commands.sort_by_key(|c| std::cmp::Reverse(c.1));
 
         if sorted_commands.len() > self.max_results {
             sorted_commands.truncate(self.max_results);
@@ -266,7 +266,7 @@ impl SearchEngine {
         }
 
         let mut sorted_directories: Vec<(String, usize)> = directory_counts.into_iter().collect();
-        sorted_directories.sort_by(|a, b| b.1.cmp(&a.1));
+        sorted_directories.sort_by_key(|d| std::cmp::Reverse(d.1));
 
         if sorted_directories.len() > self.max_results {
             sorted_directories.truncate(self.max_results);

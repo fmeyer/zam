@@ -227,9 +227,9 @@ pub fn handle_fzf(app: &mut CliApp, args: &FzfArgs) -> Result<()> {
 
     // Sort by timestamp
     if args.reverse {
-        entries.sort_by(|a, b| a.timestamp.cmp(&b.timestamp));
+        entries.sort_by_key(|a| a.timestamp);
     } else {
-        entries.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+        entries.sort_by_key(|e| std::cmp::Reverse(e.timestamp));
     }
 
     // Take the requested number of entries

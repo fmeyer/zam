@@ -13,6 +13,39 @@ use rusqlite::{Connection, OptionalExtension, params};
 use std::path::Path;
 use uuid::Uuid;
 
+/// How a text filter is matched against stored values.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MatchMode {
+    /// Contiguous, case-insensitive substring.
+    Substring,
+    /// Characters must appear in order, not necessarily contiguously.
+    Fuzzy,
+}
+
+impl MatchMode {
+    /// Build a SQL `LIKE` pattern (to be used with `ESCAPE '\'`).
+    #[must_use]
+    pub fn like_pattern(self, filter: &str) -> String {
+        let escape = |c: char| match c {
+            '%' | '_' | '\\' => format!("\\{c}"),
+            _ => c.to_string(),
+        };
+        match self {
+            MatchMode::Substring => {
+                format!("%{}%", filter.chars().map(escape).collect::<String>())
+            }
+            MatchMode::Fuzzy => {
+                let mut pattern = String::from("%");
+                for c in filter.chars() {
+                    pattern.push_str(&escape(c));
+                    pattern.push('%');
+                }
+                pattern
+            }
+        }
+    }
+}
+
 /// Represents a host in the database
 #[derive(Debug, Clone)]
 pub struct Host {
@@ -626,7 +659,7 @@ impl Database {
         offset: usize,
         limit: usize,
     ) -> Result<Vec<CommandEntry>> {
-        self.get_unique_commands_filtered(offset, limit, None)
+        self.get_unique_commands_filtered(offset, limit, None, MatchMode::Substring)
     }
 
     /// Get unique commands with optional filter, paginated
@@ -635,14 +668,15 @@ impl Database {
         offset: usize,
         limit: usize,
         filter: Option<&str>,
+        mode: MatchMode,
     ) -> Result<Vec<CommandEntry>> {
         let (where_clause, params): (&str, Vec<Box<dyn rusqlite::types::ToSql>>) = match filter {
             Some(f) if !f.is_empty() => (
-                "WHERE directory != '<imported>' AND command LIKE ?3",
+                "WHERE directory != '<imported>' AND command LIKE ?3 ESCAPE '\\'",
                 vec![
                     Box::new(limit as i64),
                     Box::new(offset as i64),
-                    Box::new(format!("%{}%", f)),
+                    Box::new(mode.like_pattern(f)),
                 ],
             ),
             _ => (
@@ -687,15 +721,20 @@ impl Database {
 
     /// Count unique (command, directory) pairs excluding imported
     pub fn count_unique_commands(&self) -> Result<usize> {
-        self.count_unique_commands_filtered(None)
+        self.count_unique_commands_filtered(None, MatchMode::Substring)
     }
 
     /// Count unique commands with optional filter
-    pub fn count_unique_commands_filtered(&self, filter: Option<&str>) -> Result<usize> {
+    pub fn count_unique_commands_filtered(
+        &self,
+        filter: Option<&str>,
+        mode: MatchMode,
+    ) -> Result<usize> {
         let (where_extra, params): (&str, Vec<Box<dyn rusqlite::types::ToSql>>) = match filter {
-            Some(f) if !f.is_empty() => {
-                (" AND command LIKE ?1", vec![Box::new(format!("%{}%", f))])
-            }
+            Some(f) if !f.is_empty() => (
+                " AND command LIKE ?1 ESCAPE '\\'",
+                vec![Box::new(mode.like_pattern(f))],
+            ),
             _ => ("", vec![]),
         };
 
@@ -1156,15 +1195,15 @@ impl Database {
 
     /// Count total sessions
     pub fn count_sessions(&self) -> Result<usize> {
-        self.count_sessions_filtered(None)
+        self.count_sessions_filtered(None, MatchMode::Substring)
     }
 
     /// Count sessions with optional filter on session id or hostname
-    pub fn count_sessions_filtered(&self, filter: Option<&str>) -> Result<usize> {
+    pub fn count_sessions_filtered(&self, filter: Option<&str>, mode: MatchMode) -> Result<usize> {
         let (where_clause, params): (&str, Vec<Box<dyn rusqlite::types::ToSql>>) = match filter {
             Some(f) if !f.is_empty() => (
-                "WHERE s.id LIKE ?1 OR h.hostname LIKE ?1",
-                vec![Box::new(format!("%{}%", f))],
+                "WHERE s.id LIKE ?1 ESCAPE '\\' OR h.hostname LIKE ?1 ESCAPE '\\'",
+                vec![Box::new(mode.like_pattern(f))],
             ),
             _ => ("", vec![]),
         };
@@ -1185,7 +1224,7 @@ impl Database {
 
     /// Get sessions with pagination
     pub fn get_sessions_paginated(&self, offset: usize, limit: usize) -> Result<Vec<Session>> {
-        self.get_sessions_filtered(offset, limit, None)
+        self.get_sessions_filtered(offset, limit, None, MatchMode::Substring)
     }
 
     /// Get sessions with optional filter, paginated
@@ -1194,14 +1233,15 @@ impl Database {
         offset: usize,
         limit: usize,
         filter: Option<&str>,
+        mode: MatchMode,
     ) -> Result<Vec<Session>> {
         let (where_clause, params): (&str, Vec<Box<dyn rusqlite::types::ToSql>>) = match filter {
             Some(f) if !f.is_empty() => (
-                "WHERE s.id LIKE ?3 OR h.hostname LIKE ?3",
+                "WHERE s.id LIKE ?3 ESCAPE '\\' OR h.hostname LIKE ?3 ESCAPE '\\'",
                 vec![
                     Box::new(limit as i64),
                     Box::new(offset as i64),
-                    Box::new(format!("%{}%", f)),
+                    Box::new(mode.like_pattern(f)),
                 ],
             ),
             _ => ("", vec![Box::new(limit as i64), Box::new(offset as i64)]),
@@ -1485,5 +1525,45 @@ mod tests {
         assert_eq!(all.len(), 2);
         let ll = all.iter().find(|a| a.alias == "ll").unwrap();
         assert_eq!(ll.command, "ls -lah");
+    }
+
+    #[test]
+    fn test_like_pattern_escapes_wildcards() {
+        assert_eq!(MatchMode::Substring.like_pattern("git"), "%git%");
+        assert_eq!(MatchMode::Fuzzy.like_pattern("gco"), "%g%c%o%");
+        assert_eq!(MatchMode::Substring.like_pattern("50%_a"), "%50\\%\\_a%");
+    }
+
+    #[test]
+    fn test_filtered_commands_by_match_mode() {
+        let temp_file = NamedTempFile::new().unwrap();
+        let mut db = Database::new(temp_file.path()).unwrap();
+        for cmd in ["git checkout main", "grep -c bar", "echo 100%", "echo 1000"] {
+            db.add_command(cmd, "/tmp", Utc::now(), false, Some(0))
+                .unwrap();
+        }
+
+        let fuzzy = db
+            .get_unique_commands_filtered(0, 10, Some("gco"), MatchMode::Fuzzy)
+            .unwrap();
+        assert_eq!(fuzzy.len(), 1);
+        assert_eq!(fuzzy[0].command, "git checkout main");
+        assert_eq!(
+            db.count_unique_commands_filtered(Some("gco"), MatchMode::Fuzzy)
+                .unwrap(),
+            1
+        );
+
+        let exact = db
+            .get_unique_commands_filtered(0, 10, Some("gco"), MatchMode::Substring)
+            .unwrap();
+        assert!(exact.is_empty());
+
+        // `%` is literal, not a wildcard
+        let pct = db
+            .get_unique_commands_filtered(0, 10, Some("0%"), MatchMode::Substring)
+            .unwrap();
+        assert_eq!(pct.len(), 1);
+        assert_eq!(pct[0].command, "echo 100%");
     }
 }

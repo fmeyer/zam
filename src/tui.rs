@@ -1,10 +1,14 @@
 //! Interactive TUI for browsing and managing all database entities
 
-use crate::database::{Alias, CommandEntry, Database, Host, Session, Token};
+use crate::database::{Alias, CommandEntry, Database, Host, MatchMode, Session, Token};
 use crate::error::Result;
 use crossterm::{
-    event::{self, Event, KeyCode, KeyEvent, KeyModifiers},
+    event::{
+        self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, KeyboardEnhancementFlags,
+        PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags,
+    },
     execute,
+    style::Print,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 use ratatui::{
@@ -210,6 +214,7 @@ struct AppTUI<'a> {
 
     // Filter
     filter: String,
+    match_mode: MatchMode,
 
     // Confirm delete
     confirm_msg: String,
@@ -226,6 +231,9 @@ struct AppTUI<'a> {
     relative_time: bool,
     running: bool,
     selected_command: Option<String>,
+    /// Whether the selected command should be executed (Enter) or only
+    /// placed on the command line for editing (Shift+Enter / Alt+Enter).
+    execute_selected: bool,
 }
 
 impl<'a> AppTUI<'a> {
@@ -253,6 +261,11 @@ impl<'a> AppTUI<'a> {
             table_state: TableState::default(),
             row_count: 0,
             filter: String::new(),
+            // Fuzzy unless the user explicitly switched it off with Ctrl+F.
+            match_mode: match db.get_preference("fuzzy_search") {
+                Ok(Some(v)) if v == "false" => MatchMode::Substring,
+                _ => MatchMode::Fuzzy,
+            },
             confirm_msg: String::new(),
             edit_field: EditField::Command,
             edit_buf: String::new(),
@@ -263,6 +276,7 @@ impl<'a> AppTUI<'a> {
             relative_time: db.get_bool_preference("relative_time").unwrap_or(false),
             running: true,
             selected_command: None,
+            execute_selected: true,
         };
         // Restore last tab from preferences
         if let Ok(Some(val)) = db.get_preference("last_tab")
@@ -284,20 +298,24 @@ impl<'a> AppTUI<'a> {
         };
         match self.tab {
             Tab::Commands => {
-                self.total_paged_rows = self.db.count_unique_commands_filtered(filter)?;
+                self.total_paged_rows = self
+                    .db
+                    .count_unique_commands_filtered(filter, self.match_mode)?;
                 self.commands = self.db.get_unique_commands_filtered(
                     self.page * self.page_size,
                     self.page_size,
                     filter,
+                    self.match_mode,
                 )?;
                 self.row_count = self.commands.len();
             }
             Tab::Sessions => {
-                self.total_paged_rows = self.db.count_sessions_filtered(filter)?;
+                self.total_paged_rows = self.db.count_sessions_filtered(filter, self.match_mode)?;
                 self.sessions = self.db.get_sessions_filtered(
                     self.page * self.page_size,
                     self.page_size,
                     filter,
+                    self.match_mode,
                 )?;
                 let sids: Vec<&str> = self.sessions.iter().map(|s| s.id.as_ref()).collect();
                 self.session_cmd_counts = self.db.count_commands_for_sessions(&sids)?;
@@ -764,6 +782,22 @@ impl<'a> AppTUI<'a> {
         }
     }
 
+    /// Full text of the selected row for the preview pane. Shows the stored
+    /// (redacted) form so secrets are never painted on screen.
+    fn selected_preview_text(&self) -> Option<&str> {
+        let idx = self.resolve_selected()?;
+        match self.tab {
+            Tab::Commands => self.commands.get(idx).map(|c| c.command.as_str()),
+            Tab::Local => self.local_commands.get(idx).map(|c| c.command.as_str()),
+            Tab::Frequent => self.frequent.get(idx).map(|f| f.command.as_str()),
+            Tab::Aliases => self.aliases.get(idx).map(|a| a.command.as_str()),
+            Tab::Sessions if self.session_detail_id.is_some() => {
+                self.session_commands.get(idx).map(|c| c.command.as_str())
+            }
+            _ => None,
+        }
+    }
+
     /// Copy the currently selected command to the system clipboard via pbcopy.
     fn yank_to_clipboard(&mut self) {
         let Some(cmd) = self.selected_command_text() else {
@@ -789,27 +823,21 @@ impl<'a> AppTUI<'a> {
         }
     }
 
-    /// Fuzzy match: each character in `pattern` must appear in `text` in order,
-    /// but not necessarily contiguously. Returns the indices of matched chars if matched.
-    fn fuzzy_match_indices(pattern: &str, text: &str) -> Option<Vec<usize>> {
-        let pattern_lower: Vec<char> = pattern.to_lowercase().chars().collect();
-        let text_chars: Vec<char> = text.to_lowercase().chars().collect();
-        let mut indices = Vec::with_capacity(pattern_lower.len());
-        let mut text_idx = 0;
-        for p in &pattern_lower {
-            loop {
-                if text_idx >= text_chars.len() {
-                    return None;
-                }
-                if text_chars[text_idx] == *p {
-                    indices.push(text_idx);
-                    text_idx += 1;
-                    break;
-                }
-                text_idx += 1;
-            }
-        }
-        Some(indices)
+    fn toggle_match_mode(&mut self) -> Result<()> {
+        self.match_mode = match self.match_mode {
+            MatchMode::Fuzzy => MatchMode::Substring,
+            MatchMode::Substring => MatchMode::Fuzzy,
+        };
+        let _ = self.db.set_preference(
+            "fuzzy_search",
+            if self.match_mode == MatchMode::Fuzzy {
+                "true"
+            } else {
+                "false"
+            },
+        );
+        self.page = 0;
+        self.load_tab()
     }
 
     fn handle_key(&mut self, key: KeyEvent) -> Result<()> {
@@ -866,9 +894,21 @@ impl<'a> AppTUI<'a> {
                         self.yank_to_clipboard();
                         return Ok(());
                     }
+                    KeyCode::Char('f') => {
+                        self.toggle_match_mode()?;
+                        return Ok(());
+                    }
                     _ => {}
                 }
             }
+        }
+
+        if key.code == KeyCode::Enter {
+            // Shift+Enter (terminals with keyboard enhancement) or Alt+Enter
+            // (everywhere) places the command on the prompt without running it.
+            self.execute_selected = !key
+                .modifiers
+                .intersects(KeyModifiers::SHIFT | KeyModifiers::ALT);
         }
 
         match self.mode {
@@ -1030,24 +1070,71 @@ impl<'a> AppTUI<'a> {
             .constraints([Constraint::Length(1), Constraint::Min(1)])
             .split(frame.area());
 
+        let preview_height = self.preview_height(outer[1]);
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Min(5),    // Table
-                Constraint::Length(1), // Tab bar
-                Constraint::Length(1), // Status
+                Constraint::Min(5),                 // Table
+                Constraint::Length(1),              // Tab bar
+                Constraint::Length(preview_height), // Preview
+                Constraint::Length(1),              // Status
             ])
             .split(outer[1]);
 
         self.render_table(frame, chunks[0]);
         self.render_tabs(frame, chunks[1]);
-        self.render_status(frame, chunks[2]);
+        self.render_preview(frame, chunks[2]);
+        self.render_status(frame, chunks[3]);
 
         match self.mode {
             Mode::Confirm => self.render_confirm(frame, frame.area()),
             Mode::EditAlias => self.render_edit_alias(frame, frame.area()),
             _ => {}
         }
+    }
+
+    /// Rows needed to show the selected command in full (plus a separator
+    /// line), capped to a third of the screen so the table stays usable.
+    fn preview_height(&self, area: Rect) -> u16 {
+        let Some(text) = self.selected_preview_text() else {
+            return 0;
+        };
+        let width = area.width.max(1) as usize;
+        let lines: usize = text
+            .lines()
+            .map(|l| l.chars().count().div_ceil(width).max(1))
+            .sum::<usize>()
+            .max(1);
+        let max = (area.height / 3).max(2) as usize;
+        (lines + 1).min(max) as u16
+    }
+
+    fn render_preview(&self, frame: &mut Frame, area: Rect) {
+        if area.height == 0 {
+            return;
+        }
+        let Some(text) = self.selected_preview_text() else {
+            return;
+        };
+        let lines: Vec<Line> = text
+            .lines()
+            .map(|l| {
+                if self.filter.is_empty() {
+                    Line::from(l)
+                } else {
+                    highlight_matches(l, &self.filter, self.match_mode, self.theme.match_highlight)
+                }
+            })
+            .collect();
+        let p = Paragraph::new(lines)
+            .block(
+                Block::default()
+                    .borders(Borders::TOP)
+                    .border_style(Style::default().fg(self.theme.tab_number)),
+            )
+            .style(Style::default().fg(self.theme.tab_text))
+            .wrap(Wrap { trim: false });
+        frame.render_widget(p, area);
     }
 
     fn render_tabs(&self, frame: &mut Frame, area: Rect) {
@@ -1150,7 +1237,7 @@ impl<'a> AppTUI<'a> {
         if self.filter.is_empty() {
             return true;
         }
-        Self::fuzzy_match_indices(&self.filter, text).is_some()
+        match_indices(self.match_mode, &self.filter, text).is_some()
     }
 
     fn fmt_time(&self, dt: chrono::DateTime<chrono::Utc>) -> String {
@@ -1226,6 +1313,7 @@ impl<'a> AppTUI<'a> {
                     Cell::from(highlight_matches(
                         &c.command,
                         &filter_ref,
+                        self.match_mode,
                         self.theme.match_highlight,
                     ))
                 } else {
@@ -1275,6 +1363,7 @@ impl<'a> AppTUI<'a> {
                     Cell::from(highlight_matches(
                         &c.command,
                         &filter_ref,
+                        self.match_mode,
                         self.theme.match_highlight,
                     ))
                 } else {
@@ -1513,7 +1602,13 @@ impl<'a> AppTUI<'a> {
                     format!(" / {}_", self.filter)
                 };
 
-                let mut right_parts = Vec::new();
+                let mut right_parts = vec![
+                    match self.match_mode {
+                        MatchMode::Fuzzy => "fuzzy",
+                        MatchMode::Substring => "exact",
+                    }
+                    .to_string(),
+                ];
                 let count_info = if self.is_paginated_tab() {
                     let filtered = self.row_count;
                     let total = self.total_paged_rows;
@@ -1623,7 +1718,9 @@ impl<'a> AppTUI<'a> {
 
         let mut help = vec![
             Line::from(vec![Span::styled("search", header_style)]),
-            Line::from("  type to fuzzy filter    Enter  run command    Esc  clear / quit"),
+            Line::from("  type to filter          ^F  toggle fuzzy / exact matching"),
+            Line::from("  Enter  run command      Shift+Enter / Alt+Enter  edit before running"),
+            Line::from("  Esc    clear / quit"),
             Line::from(""),
             Line::from(vec![Span::styled("navigation", header_style)]),
             Line::from("  ↑/↓       move up/down"),
@@ -1711,11 +1808,52 @@ fn exit_code_cell(exit_code: Option<i32>, theme: &Theme) -> Cell<'static> {
     }
 }
 
-fn highlight_matches<'a>(text: &'a str, filter: &str, highlight_color: Color) -> Line<'a> {
+/// Lowercase char-by-char so indices stay aligned with `text.chars()`.
+fn lower_chars(s: &str) -> Vec<char> {
+    s.chars()
+        .map(|c| c.to_lowercase().next().unwrap_or(c))
+        .collect()
+}
+
+/// Case-insensitive match of `pattern` in `text`, returning the char indices
+/// of matched characters.
+///
+/// - `Fuzzy`: each pattern char must appear in order, not necessarily contiguously.
+/// - `Substring`: the pattern must appear contiguously.
+fn match_indices(mode: MatchMode, pattern: &str, text: &str) -> Option<Vec<usize>> {
+    let pat = lower_chars(pattern);
+    let txt = lower_chars(text);
+    match mode {
+        MatchMode::Fuzzy => {
+            let mut indices = Vec::with_capacity(pat.len());
+            let mut it = txt.iter().enumerate();
+            for p in &pat {
+                let (i, _) = it.by_ref().find(|(_, c)| *c == p)?;
+                indices.push(i);
+            }
+            Some(indices)
+        }
+        MatchMode::Substring => {
+            if pat.is_empty() {
+                return Some(Vec::new());
+            }
+            txt.windows(pat.len())
+                .position(|w| w == pat.as_slice())
+                .map(|start| (start..start + pat.len()).collect())
+        }
+    }
+}
+
+fn highlight_matches<'a>(
+    text: &'a str,
+    filter: &str,
+    mode: MatchMode,
+    highlight_color: Color,
+) -> Line<'a> {
     if filter.is_empty() {
         return Line::from(text);
     }
-    let Some(indices) = AppTUI::fuzzy_match_indices(filter, text) else {
+    let Some(indices) = match_indices(mode, filter, text) else {
         return Line::from(text);
     };
     let highlight_set: std::collections::HashSet<usize> = indices.into_iter().collect();
@@ -1790,12 +1928,36 @@ fn centered_rect(percent_x: u16, height: u16, area: Rect) -> Rect {
         .split(popup_layout[1])[1]
 }
 
+/// A command picked in the TUI and what the shell should do with it.
+pub enum Selection {
+    /// Run the command immediately (Enter).
+    Execute(String),
+    /// Place the command on the prompt for editing (Shift+Enter / Alt+Enter).
+    Edit(String),
+}
+
+/// xterm `modifyOtherKeys` level 1: only keys that would otherwise lose their
+/// modifiers (e.g. Shift+Enter) are sent in extended form; Ctrl/Alt keys keep
+/// their legacy encoding. tmux needs `extended-keys on` and
+/// `extended-keys-format csi-u` for crossterm to parse the result.
+const MODIFY_OTHER_KEYS_ON: &str = "\x1b[>4;1m";
+const MODIFY_OTHER_KEYS_OFF: &str = "\x1b[>4;0m";
+
 /// Run the interactive TUI for browsing database entities.
-/// Returns the selected command string if the user pressed Enter on a Local entry.
-pub fn run_tui(db: &Database, cwd: String) -> Result<Option<String>> {
+/// Returns the selected command, if any, and whether it should be executed.
+pub fn run_tui(db: &Database, cwd: String) -> Result<Option<Selection>> {
     let mut tty = File::options().write(true).open("/dev/tty")?;
     enable_raw_mode()?;
-    execute!(tty, EnterAlternateScreen)?;
+    // Ask for disambiguated key reporting so Shift+Enter is distinguishable
+    // from Enter: the kitty protocol for terminals that speak it directly, and
+    // xterm modifyOtherKeys for tmux (which ignores the kitty request).
+    // Terminals without support ignore both sequences.
+    execute!(
+        tty,
+        EnterAlternateScreen,
+        PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES),
+        Print(MODIFY_OTHER_KEYS_ON)
+    )?;
     let backend = CrosstermBackend::new(tty);
     let mut terminal = Terminal::new(backend)?;
 
@@ -1807,6 +1969,7 @@ pub fn run_tui(db: &Database, cwd: String) -> Result<Option<String>> {
 
             if event::poll(std::time::Duration::from_millis(100))?
                 && let Event::Key(key) = event::read()?
+                && key.kind == KeyEventKind::Press
             {
                 app.handle_key(key)?;
             }
@@ -1815,9 +1978,50 @@ pub fn run_tui(db: &Database, cwd: String) -> Result<Option<String>> {
     })();
 
     disable_raw_mode()?;
-    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+    execute!(
+        terminal.backend_mut(),
+        Print(MODIFY_OTHER_KEYS_OFF),
+        PopKeyboardEnhancementFlags,
+        LeaveAlternateScreen
+    )?;
     terminal.show_cursor()?;
 
     result?;
-    Ok(app.selected_command)
+    Ok(app.selected_command.map(|cmd| {
+        if app.execute_selected {
+            Selection::Execute(cmd)
+        } else {
+            Selection::Edit(cmd)
+        }
+    }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fuzzy_matches_subsequence() {
+        assert_eq!(
+            match_indices(MatchMode::Fuzzy, "gco", "git checkout"),
+            Some(vec![0, 4, 9])
+        );
+        assert_eq!(
+            match_indices(MatchMode::Fuzzy, "GCO", "git checkout").map(|v| v.len()),
+            Some(3)
+        );
+        assert_eq!(match_indices(MatchMode::Fuzzy, "xyz", "git checkout"), None);
+    }
+
+    #[test]
+    fn substring_requires_contiguous_match() {
+        assert_eq!(
+            match_indices(MatchMode::Substring, "check", "git checkout"),
+            Some(vec![4, 5, 6, 7, 8])
+        );
+        assert_eq!(
+            match_indices(MatchMode::Substring, "gco", "git checkout"),
+            None
+        );
+    }
 }
