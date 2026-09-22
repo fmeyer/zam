@@ -96,6 +96,7 @@ Backend selection logic (in `cli/mod.rs:114-138`):
 - `tui.rs`: Interactive TUI with tabbed entity browser (Local, Top 50, History, Aliases, Hosts, Sessions, Tokens)
 - `redaction.rs`: Sensitive data detection and redaction engine
 - `search.rs`: Search functionality with fuzzy matching and regex
+- `fuzzy.rs`: Shared fuzzy matcher (`nucleo-matcher`, fzf v2 scoring and query syntax) and built-in frecency ranking
 - `config.rs`: Configuration loading and management
 - `error.rs`: Error types and Result alias
 - `types.rs`: Type-safe newtype wrappers for IDs (CommandId, HostId, SessionId)
@@ -171,7 +172,7 @@ The `zam tui` command provides a tabbed interface for browsing all database enti
 ### Search Engine
 
 The `SearchEngine` (`search.rs`) supports:
-- Fuzzy matching (configurable threshold)
+- Fuzzy matching via `fuzzy::Matcher` (fzf syntax: space = AND, `'exact`, `^prefix`, `suffix$`, `!negate`)
 - Regex patterns
 - Case-sensitive/insensitive search
 - Directory filtering

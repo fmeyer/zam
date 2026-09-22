@@ -3,7 +3,9 @@
 //! This module provides advanced search capabilities for command history,
 //! including fuzzy search, filtering, ranking, and result highlighting.
 
+use crate::database::MatchMode;
 use crate::error::Result;
+use crate::fuzzy::{CaseMatching, Matcher};
 use crate::history::HistoryEntry;
 use regex::Regex;
 use std::collections::HashMap;
@@ -58,7 +60,7 @@ pub struct SearchResult {
     pub score: f64,
     /// Highlighted command (if highlighting is enabled)
     pub highlighted: Option<String>,
-    /// Match positions in the command
+    /// Match positions in the command, as byte ranges
     pub matches: Vec<(usize, usize)>,
 }
 
@@ -128,12 +130,24 @@ impl SearchEngine {
             None
         };
 
-        // Prepare search term
-        let search_term = if query.case_sensitive {
-            query.term.clone()
+        // Literal matcher for exact (non-fuzzy, non-regex) search
+        let literal = if !query.regex && !query.fuzzy {
+            let case_flag = if query.case_sensitive { "" } else { "(?i)" };
+            Some(Regex::new(&format!(
+                "{case_flag}{}",
+                regex::escape(&query.term)
+            ))?)
         } else {
-            query.term.to_lowercase()
+            None
         };
+        let mut matcher = query.fuzzy.then(|| {
+            let case = if query.case_sensitive {
+                CaseMatching::Respect
+            } else {
+                CaseMatching::Ignore
+            };
+            Matcher::new(&query.term, MatchMode::Fuzzy, case)
+        });
 
         for entry in entries {
             // Apply filters
@@ -144,10 +158,12 @@ impl SearchEngine {
             // Check for match
             let (is_match, matches, score) = if let Some(ref regex) = regex {
                 self.regex_match(&entry.command, regex)?
-            } else if query.fuzzy {
-                self.fuzzy_match(&entry.command, &search_term, query.case_sensitive)
+            } else if let Some(ref literal) = literal {
+                self.exact_match(&entry.command, literal)
+            } else if let Some(ref mut matcher) = matcher {
+                self.fuzzy_match(&entry.command, matcher)
             } else {
-                self.exact_match(&entry.command, &search_term, query.case_sensitive)
+                (false, Vec::new(), 0.0)
             };
 
             if is_match {
@@ -299,31 +315,23 @@ impl SearchEngine {
         true
     }
 
-    /// Perform exact string matching
-    fn exact_match(&self, command: &str, search_term: &str, case_sensitive: bool) -> MatchResult {
-        let haystack = if case_sensitive {
-            command
-        } else {
-            &command.to_lowercase()
-        };
-
-        let mut matches = Vec::new();
-        let mut start = 0;
-        let mut match_count = 0;
-
-        while let Some(pos) = haystack[start..].find(search_term) {
-            let actual_pos = start + pos;
-            matches.push((actual_pos, actual_pos + search_term.len()));
-            start = actual_pos + search_term.len();
-            match_count += 1;
-        }
+    /// Perform exact string matching against a literal-escaped regex.
+    ///
+    /// Using a regex (instead of searching a lowercased copy) keeps the
+    /// returned ranges as valid byte offsets into the original command, even
+    /// when lowercasing would change the byte length.
+    fn exact_match(&self, command: &str, literal: &Regex) -> MatchResult {
+        let matches: Vec<(usize, usize)> = literal
+            .find_iter(command)
+            .map(|m| (m.start(), m.end()))
+            .collect();
 
         let is_match = !matches.is_empty();
         let score = if is_match {
             // Higher score for more matches and exact matches at the beginning
-            let base_score = match_count as f64;
+            let base_score = matches.len() as f64;
             let position_bonus = if matches[0].0 == 0 { 0.5 } else { 0.0 };
-            let length_ratio = search_term.len() as f64 / command.len() as f64;
+            let length_ratio = (matches[0].1 - matches[0].0) as f64 / command.len() as f64;
             base_score + position_bonus + length_ratio
         } else {
             0.0
@@ -332,59 +340,30 @@ impl SearchEngine {
         (is_match, matches, score)
     }
 
-    /// Perform fuzzy matching using a simple algorithm
-    fn fuzzy_match(&self, command: &str, search_term: &str, case_sensitive: bool) -> MatchResult {
-        let haystack = if case_sensitive {
-            command.to_string()
-        } else {
-            command.to_lowercase()
+    /// Perform fuzzy matching (fzf-style scoring, see [`crate::fuzzy`]).
+    ///
+    /// Returned ranges are byte offsets into `command`, one per matched char
+    /// (adjacent chars merged), so they can be used to slice the command.
+    fn fuzzy_match(&self, command: &str, matcher: &mut Matcher) -> MatchResult {
+        let Some((score, indices)) = matcher.score_with_indices(command) else {
+            return (false, Vec::new(), 0.0);
         };
 
-        let needle = if case_sensitive {
-            search_term.to_string()
-        } else {
-            search_term.to_lowercase()
-        };
-
-        // Simple fuzzy matching: check if all characters in search term appear in order
-        let mut matches = Vec::new();
-        let mut haystack_pos = 0;
-        let mut needle_pos = 0;
-        let mut match_start = None;
-
-        let haystack_chars: Vec<char> = haystack.chars().collect();
-        let needle_chars: Vec<char> = needle.chars().collect();
-
-        while haystack_pos < haystack_chars.len() && needle_pos < needle_chars.len() {
-            if haystack_chars[haystack_pos] == needle_chars[needle_pos] {
-                if match_start.is_none() {
-                    match_start = Some(haystack_pos);
-                }
-                needle_pos += 1;
-                if needle_pos == needle_chars.len() {
-                    // Found all characters
-                    matches.push((match_start.unwrap(), haystack_pos + 1));
-                    break;
-                }
+        let mut wanted = indices.into_iter().peekable();
+        let mut matches: Vec<(usize, usize)> = Vec::new();
+        for (char_pos, (byte_pos, c)) in command.char_indices().enumerate() {
+            if wanted.peek() != Some(&char_pos) {
+                continue;
             }
-            haystack_pos += 1;
+            wanted.next();
+            let end = byte_pos + c.len_utf8();
+            match matches.last_mut() {
+                Some(last) if last.1 == byte_pos => last.1 = end,
+                _ => matches.push((byte_pos, end)),
+            }
         }
 
-        let is_match = needle_pos == needle_chars.len();
-        let score = if is_match {
-            // Calculate score based on how close the match is to exact
-            let match_length = if let Some(start) = match_start {
-                haystack_pos - start + 1
-            } else {
-                haystack.len()
-            };
-            let exact_ratio = needle.len() as f64 / match_length as f64;
-            exact_ratio * 0.8 // Fuzzy matches score lower than exact matches
-        } else {
-            0.0
-        };
-
-        (is_match, matches, score)
+        (true, matches, f64::from(score))
     }
 
     /// Perform regex matching
@@ -682,5 +661,46 @@ mod tests {
         assert_eq!(results.len(), 2);
         // First result should have higher score
         assert!(results[0].score >= results[1].score);
+    }
+
+    fn entry(command: &str) -> HistoryEntry {
+        HistoryEntry {
+            command: command.to_string(),
+            timestamp: Utc::now(),
+            directory: "/".to_string(),
+            redacted: false,
+            original: None,
+            deleted: false,
+        }
+    }
+
+    #[test]
+    fn test_fuzzy_non_ascii_highlight() {
+        let engine = SearchEngine::new();
+
+        // Previously panicked: char index 1 used as a byte offset into "é".
+        let results = engine.search(&[entry("écho")], "c").unwrap();
+        assert_eq!(results[0].matches, vec![(2, 3)]);
+
+        // Previously highlighted " l" instead of "ls".
+        let results = engine.search(&[entry("echo café ls")], "ls").unwrap();
+        let highlighted = results[0].highlighted.as_deref().unwrap();
+        assert!(highlighted.ends_with("\x1b[1;33mls\x1b[0m"));
+    }
+
+    #[test]
+    fn test_fuzzy_highlights_matched_chars_only() {
+        let engine = SearchEngine::new();
+        let results = engine.search(&[entry("git checkout")], "gco").unwrap();
+        assert_eq!(results[0].matches, vec![(0, 1), (4, 5), (9, 10)]);
+    }
+
+    #[test]
+    fn test_exact_case_insensitive_non_ascii() {
+        let engine = SearchEngine::with_config(false, false, true, false, 1000, true);
+        // "İ" lowercases to two chars, which shifted offsets in the old code.
+        let results = engine.search(&[entry("İstanbul ls")], "ls").unwrap();
+        assert_eq!(results[0].matches, vec![(10, 12)]);
+        assert!(results[0].highlighted.as_deref().unwrap().contains("ls"));
     }
 }

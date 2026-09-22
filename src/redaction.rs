@@ -15,6 +15,8 @@ pub const BUILTIN_PATTERNS: &[&str] = &[
     r"(?i)(pwd\s*[=:]\s*)[^\s]+",
     r"(?i)(pass\s*[=:]\s*)[^\s]+",
     r"(?i)(passwd\s*[=:]\s*)[^\s]+",
+    // Password flags: `--pass x`, `-passphrase 'multi word'`, `--password=x`
+    r#"(?i)((?:^|\s)--?(?:passphrase|password|passwd|pass)(?:=|\s+))(?:'[^']*'|"[^"]*"|[^\s'"]+)"#,
     // Token patterns (with capture groups to preserve key=)
     r"(?i)(token\s*[=:]\s*)[^\s]+",
     r"(?i)(auth_token\s*[=:]\s*)[^\s]+",
@@ -179,6 +181,7 @@ impl RedactionEngine {
                     }
                 } else if pattern.contains(r"[=:]\s*)[^\s]+")
                     || pattern.contains(r"[=:]\s*)[a-zA-Z0-9]")
+                    || pattern.contains(r"(?:=|\s+))")
                 {
                     // Key-value pattern - keep the key part
                     ReplacementType::Partial {
@@ -426,6 +429,31 @@ mod tests {
             ("token=abc123def456", "token=<redacted>"),
             ("api_key=very_secret_key", "api_key=<redacted>"),
             ("echo hello world", "echo hello world"), // No sensitive data
+        ];
+
+        for (input, expected) in test_cases {
+            let result = engine.redact(input).unwrap();
+            assert_eq!(result, expected, "Failed for input: {}", input);
+        }
+    }
+
+    #[test]
+    fn test_pass_flag_redaction() {
+        let engine = RedactionEngine::new().unwrap();
+
+        let test_cases = vec![
+            (
+                "bx-key.py --link --pass 'correct horse battery'",
+                "bx-key.py --link --pass <redacted>",
+            ),
+            (
+                "tool --passphrase \"two words\" -v",
+                "tool --passphrase <redacted> -v",
+            ),
+            ("tool --password hunter22", "tool --password <redacted>"),
+            ("tool -pass hunter22 -v", "tool -pass <redacted> -v"),
+            ("pass show email/work", "pass show email/work"),
+            ("tool --passive mode", "tool --passive mode"),
         ];
 
         for (input, expected) in test_cases {
