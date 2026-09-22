@@ -49,11 +49,18 @@ add-zsh-hook precmd _zam_precmd
 add-zsh-hook zshexit _zam_zshexit
 
 # Interactive TUI history browser (Ctrl+R)
+# Enter runs the command; Shift+Enter / Alt+Enter (exit status 3) only puts it
+# on the prompt for editing.
 zam-widget() {
-    local cmd="$(zam tui)"
+    local cmd rc
+    cmd="$(zam tui)"
+    rc=$?
     if [[ -n "$cmd" ]]; then
         BUFFER="$cmd"
-        zle accept-line
+        CURSOR=${#BUFFER}
+        if (( rc != 3 )); then
+            zle accept-line
+        fi
     fi
     zle reset-prompt
 }

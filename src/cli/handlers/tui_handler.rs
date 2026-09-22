@@ -4,6 +4,11 @@ use crate::cli::{CliApp, HistoryBackend};
 use crate::error::{Error, Result};
 use crate::tui;
 use std::env;
+use std::io::Write;
+
+/// Exit status telling the shell widget to place the printed command on the
+/// prompt for editing instead of running it.
+pub const EXIT_EDIT: i32 = 3;
 
 pub fn handle_tui(app: &mut CliApp) -> Result<()> {
     let mgr = match &app.backend {
@@ -19,8 +24,14 @@ pub fn handle_tui(app: &mut CliApp) -> Result<()> {
         .map(|p| p.to_string_lossy().into_owned())
         .unwrap_or_default();
 
-    if let Some(cmd) = tui::run_tui(&mgr.db, cwd)? {
-        println!("{cmd}");
+    match tui::run_tui(&mgr.db, cwd)? {
+        Some(tui::Selection::Execute(cmd)) => println!("{cmd}"),
+        Some(tui::Selection::Edit(cmd)) => {
+            println!("{cmd}");
+            std::io::stdout().flush()?;
+            std::process::exit(EXIT_EDIT);
+        }
+        None => {}
     }
     Ok(())
 }
