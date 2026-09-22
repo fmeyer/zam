@@ -1,7 +1,10 @@
 //! Interactive TUI for browsing and managing all database entities
 
-use crate::database::{Alias, CommandEntry, Database, Host, MatchMode, Session, Token};
+use crate::database::{
+    Alias, CommandCandidate, CommandEntry, Database, Host, MatchMode, Session, Token,
+};
 use crate::error::Result;
+use crate::fuzzy::{self, CaseMatching};
 use crossterm::{
     event::{
         self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, KeyboardEnhancementFlags,
@@ -19,6 +22,7 @@ use ratatui::{
     text::{Line, Span},
     widgets::{Block, Borders, Cell, Paragraph, Row, Table, TableState, Wrap},
 };
+use std::cell::RefCell;
 use std::fs::File;
 
 /// Color theme for the TUI, with dark and light variants.
@@ -215,6 +219,13 @@ struct AppTUI<'a> {
     // Filter
     filter: String,
     match_mode: MatchMode,
+    matcher: RefCell<fuzzy::Matcher>,
+
+    // Ranked search over unique commands (Commands tab with a filter).
+    // Candidates are loaded once and ranked in memory on each query change.
+    candidates: Option<Vec<CommandCandidate>>,
+    ranked: Vec<usize>,
+    ranked_for: Option<(String, MatchMode)>,
 
     // Confirm delete
     confirm_msg: String,
@@ -238,6 +249,11 @@ struct AppTUI<'a> {
 
 impl<'a> AppTUI<'a> {
     fn new(db: &'a Database, cwd: String) -> Result<Self> {
+        // Fuzzy unless the user explicitly switched it off with Ctrl+F.
+        let match_mode = match db.get_preference("fuzzy_search") {
+            Ok(Some(v)) if v == "false" => MatchMode::Substring,
+            _ => MatchMode::Fuzzy,
+        };
         let mut app = Self {
             db,
             cwd,
@@ -261,11 +277,11 @@ impl<'a> AppTUI<'a> {
             table_state: TableState::default(),
             row_count: 0,
             filter: String::new(),
-            // Fuzzy unless the user explicitly switched it off with Ctrl+F.
-            match_mode: match db.get_preference("fuzzy_search") {
-                Ok(Some(v)) if v == "false" => MatchMode::Substring,
-                _ => MatchMode::Fuzzy,
-            },
+            match_mode,
+            matcher: RefCell::new(fuzzy::Matcher::new("", match_mode, CaseMatching::Smart)),
+            candidates: None,
+            ranked: Vec::new(),
+            ranked_for: None,
             confirm_msg: String::new(),
             edit_field: EditField::Command,
             edit_buf: String::new(),
@@ -297,16 +313,24 @@ impl<'a> AppTUI<'a> {
             Some(self.filter.as_str())
         };
         match self.tab {
+            Tab::Commands if filter.is_some() => {
+                self.rank_commands()?;
+                let candidates = self.candidates.as_deref().unwrap_or_default();
+                self.total_paged_rows = self.ranked.len();
+                self.commands = self
+                    .ranked
+                    .iter()
+                    .skip(self.page * self.page_size)
+                    .take(self.page_size)
+                    .map(|&i| candidates[i].entry.clone())
+                    .collect();
+                self.row_count = self.commands.len();
+            }
             Tab::Commands => {
-                self.total_paged_rows = self
+                self.total_paged_rows = self.db.count_unique_commands()?;
+                self.commands = self
                     .db
-                    .count_unique_commands_filtered(filter, self.match_mode)?;
-                self.commands = self.db.get_unique_commands_filtered(
-                    self.page * self.page_size,
-                    self.page_size,
-                    filter,
-                    self.match_mode,
-                )?;
+                    .get_unique_commands_paginated(self.page * self.page_size, self.page_size)?;
                 self.row_count = self.commands.len();
             }
             Tab::Sessions => {
@@ -354,6 +378,48 @@ impl<'a> AppTUI<'a> {
             self.table_state.select(Some(0));
         }
         Ok(())
+    }
+
+    /// Rank all unique commands against the current filter by match score
+    /// blended with frecency. Cached per (filter, mode) so paging is cheap.
+    fn rank_commands(&mut self) -> Result<()> {
+        if self.candidates.is_none() {
+            self.candidates = Some(self.db.get_command_candidates(&self.cwd)?);
+            self.ranked_for = None;
+        }
+        let key = (self.filter.clone(), self.match_mode);
+        if self.ranked_for.as_ref() == Some(&key) {
+            return Ok(());
+        }
+
+        let candidates = self.candidates.as_deref().unwrap_or_default();
+        let matcher = self.matcher.get_mut();
+        matcher.set_query(&self.filter, self.match_mode);
+        let now = chrono::Utc::now();
+        let mut scored: Vec<(usize, f64)> = candidates
+            .iter()
+            .enumerate()
+            .filter_map(|(i, c)| {
+                let score = matcher.score(&c.entry.command)?;
+                let usage = fuzzy::Usage {
+                    count: c.count,
+                    last_used: c.entry.timestamp,
+                    in_cwd: c.in_cwd,
+                };
+                Some((i, fuzzy::rank(score, &usage, now)))
+            })
+            .collect();
+        // Stable sort: candidates are most-recent-first, so ties keep recency.
+        scored.sort_by(|a, b| b.1.total_cmp(&a.1));
+        self.ranked = scored.into_iter().map(|(i, _)| i).collect();
+        self.ranked_for = Some(key);
+        Ok(())
+    }
+
+    /// Drop cached candidates after the underlying commands change.
+    fn invalidate_candidates(&mut self) {
+        self.candidates = None;
+        self.ranked_for = None;
     }
 
     /// Map the selected table row back to the original data index,
@@ -629,6 +695,7 @@ impl<'a> AppTUI<'a> {
             }
             Tab::Frequent | Tab::Help => {}
         }
+        self.invalidate_candidates();
         self.mode = Mode::Filter;
         self.load_tab()
     }
@@ -1122,7 +1189,7 @@ impl<'a> AppTUI<'a> {
                 if self.filter.is_empty() {
                     Line::from(l)
                 } else {
-                    highlight_matches(l, &self.filter, self.match_mode, self.theme.match_highlight)
+                    highlight_matches(l, self.match_indices(l), self.theme.match_highlight)
                 }
             })
             .collect();
@@ -1237,7 +1304,16 @@ impl<'a> AppTUI<'a> {
         if self.filter.is_empty() {
             return true;
         }
-        match_indices(self.match_mode, &self.filter, text).is_some()
+        let mut matcher = self.matcher.borrow_mut();
+        matcher.set_query(&self.filter, self.match_mode);
+        matcher.score(text).is_some()
+    }
+
+    /// Char indices of `text` matched by the current filter.
+    fn match_indices(&self, text: &str) -> Option<Vec<usize>> {
+        let mut matcher = self.matcher.borrow_mut();
+        matcher.set_query(&self.filter, self.match_mode);
+        matcher.indices(text)
     }
 
     fn fmt_time(&self, dt: chrono::DateTime<chrono::Utc>) -> String {
@@ -1312,8 +1388,7 @@ impl<'a> AppTUI<'a> {
                 let cmd_cell = if !filter_ref.is_empty() {
                     Cell::from(highlight_matches(
                         &c.command,
-                        &filter_ref,
-                        self.match_mode,
+                        self.match_indices(&c.command),
                         self.theme.match_highlight,
                     ))
                 } else {
@@ -1362,8 +1437,7 @@ impl<'a> AppTUI<'a> {
                 let cmd_cell = if !filter_ref.is_empty() {
                     Cell::from(highlight_matches(
                         &c.command,
-                        &filter_ref,
-                        self.match_mode,
+                        self.match_indices(&c.command),
                         self.theme.match_highlight,
                     ))
                 } else {
@@ -1808,57 +1882,14 @@ fn exit_code_cell(exit_code: Option<i32>, theme: &Theme) -> Cell<'static> {
     }
 }
 
-/// Lowercase char-by-char so indices stay aligned with `text.chars()`.
-fn lower_chars(s: &str) -> Vec<char> {
-    s.chars()
-        .map(|c| c.to_lowercase().next().unwrap_or(c))
-        .collect()
-}
-
-/// Case-insensitive match of `pattern` in `text`, returning the char indices
-/// of matched characters.
-///
-/// - `Fuzzy`: each pattern char must appear in order, not necessarily contiguously.
-/// - `Substring`: the pattern must appear contiguously.
-fn match_indices(mode: MatchMode, pattern: &str, text: &str) -> Option<Vec<usize>> {
-    let pat = lower_chars(pattern);
-    let txt = lower_chars(text);
-    match mode {
-        MatchMode::Fuzzy => {
-            let mut indices = Vec::with_capacity(pat.len());
-            let mut it = txt.iter().enumerate();
-            for p in &pat {
-                let (i, _) = it.by_ref().find(|(_, c)| *c == p)?;
-                indices.push(i);
-            }
-            Some(indices)
-        }
-        MatchMode::Substring => {
-            if pat.is_empty() {
-                return Some(Vec::new());
-            }
-            txt.windows(pat.len())
-                .position(|w| w == pat.as_slice())
-                .map(|start| (start..start + pat.len()).collect())
-        }
-    }
-}
-
-fn highlight_matches<'a>(
-    text: &'a str,
-    filter: &str,
-    mode: MatchMode,
-    highlight_color: Color,
-) -> Line<'a> {
-    if filter.is_empty() {
-        return Line::from(text);
-    }
-    let Some(indices) = match_indices(mode, filter, text) else {
+/// Render `text` with the chars at `indices` highlighted.
+fn highlight_matches(text: &str, indices: Option<Vec<usize>>, highlight_color: Color) -> Line<'_> {
+    let Some(indices) = indices else {
         return Line::from(text);
     };
     let highlight_set: std::collections::HashSet<usize> = indices.into_iter().collect();
     let text_chars: Vec<char> = text.chars().collect();
-    let mut spans: Vec<Span<'a>> = Vec::new();
+    let mut spans: Vec<Span<'_>> = Vec::new();
     let mut buf = String::new();
     let mut in_highlight = false;
 
@@ -2001,27 +2032,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn fuzzy_matches_subsequence() {
-        assert_eq!(
-            match_indices(MatchMode::Fuzzy, "gco", "git checkout"),
-            Some(vec![0, 4, 9])
-        );
-        assert_eq!(
-            match_indices(MatchMode::Fuzzy, "GCO", "git checkout").map(|v| v.len()),
-            Some(3)
-        );
-        assert_eq!(match_indices(MatchMode::Fuzzy, "xyz", "git checkout"), None);
-    }
-
-    #[test]
-    fn substring_requires_contiguous_match() {
-        assert_eq!(
-            match_indices(MatchMode::Substring, "check", "git checkout"),
-            Some(vec![4, 5, 6, 7, 8])
-        );
-        assert_eq!(
-            match_indices(MatchMode::Substring, "gco", "git checkout"),
-            None
-        );
+    fn highlight_marks_matched_chars() {
+        let line = highlight_matches("café ls", Some(vec![5, 6]), Color::Red);
+        let text: Vec<&str> = line.spans.iter().map(|s| s.content.as_ref()).collect();
+        assert_eq!(text, vec!["café ", "ls"]);
+        assert!(line.spans[1].style.add_modifier.contains(Modifier::BOLD));
     }
 }

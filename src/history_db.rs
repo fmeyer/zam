@@ -133,6 +133,12 @@ impl HistoryManagerDb {
 
         // Define patterns for token extraction
         let patterns = vec![
+            // Password flags (`--pass`, `-passphrase`, ...), including quoted
+            // multi-word values. First, so quoted values are taken whole.
+            (
+                r#"(?i)(?:^|\s)--?(?:passphrase|password|passwd|pass)(?:=|\s+)(?:'([^']+)'|"([^"]+)"|([^\s'"]+))"#,
+                "password",
+            ),
             (
                 r#"(?i)(?:password|passwd|pwd)[\s=:]+['"]?([^\s'"]{3,})['"]?"#,
                 "password",
@@ -157,11 +163,21 @@ impl HistoryManagerDb {
             let re = Regex::new(pattern_str)?;
 
             for caps in re.captures_iter(&redacted.clone()) {
-                if let Some(matched) = caps.get(1) {
+                // Value is the first participating group (patterns may have
+                // alternative groups for quoted/unquoted values).
+                if let Some(matched) = caps.iter().skip(1).flatten().next() {
                     let original_value = matched.as_str().to_string();
 
                     // Skip if too short (likely not a real password)
                     if original_value.len() < self.config.redaction.min_redaction_length {
+                        continue;
+                    }
+
+                    // Skip placeholders inserted by an earlier pattern
+                    if tokens
+                        .iter()
+                        .any(|t: &ExtractedToken| t.placeholder == original_value)
+                    {
                         continue;
                     }
 
@@ -517,5 +533,56 @@ mod tests {
             .unwrap();
 
         assert!(!tokens.is_empty());
+    }
+
+    #[test]
+    fn test_pass_flag_extraction() {
+        let (config, _temp_dir) = test_config();
+        let manager = HistoryManagerDb::new(config).unwrap();
+
+        let cases = [
+            (
+                "bx-key.py --link --pass 'correct horse battery'",
+                "correct horse battery",
+                "bx-key.py --link --pass '<password:1>'",
+            ),
+            (
+                "tool --passphrase \"two words\" -v",
+                "two words",
+                "tool --passphrase \"<password:1>\" -v",
+            ),
+            (
+                "tool --pass=hunter22 -v",
+                "hunter22",
+                "tool --pass=<password:1> -v",
+            ),
+            ("tool -pass hunter22", "hunter22", "tool -pass <password:1>"),
+        ];
+        for (input, secret, expected) in cases {
+            let (redacted, tokens) = manager.redact_and_extract_tokens(input).unwrap();
+            assert_eq!(redacted, expected, "input: {input}");
+            assert_eq!(tokens.len(), 1, "input: {input}");
+            assert_eq!(tokens[0].original_value, secret);
+        }
+
+        // The `pass` password manager CLI is not a flag.
+        let (redacted, tokens) = manager
+            .redact_and_extract_tokens("pass show email/work")
+            .unwrap();
+        assert_eq!(redacted, "pass show email/work");
+        assert!(tokens.is_empty());
+    }
+
+    #[test]
+    fn test_placeholder_not_extracted_twice() {
+        let (config, _temp_dir) = test_config();
+        let manager = HistoryManagerDb::new(config).unwrap();
+
+        let (redacted, tokens) = manager
+            .redact_and_extract_tokens("mysql --password secret123")
+            .unwrap();
+        assert_eq!(redacted, "mysql --password <password:1>");
+        assert_eq!(tokens.len(), 1);
+        assert_eq!(tokens[0].original_value, "secret123");
     }
 }

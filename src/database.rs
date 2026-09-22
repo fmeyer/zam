@@ -76,6 +76,17 @@ pub struct CommandEntry {
     pub exit_code: Option<i32>,
 }
 
+/// A unique command with usage stats, used for fuzzy ranking
+#[derive(Debug, Clone)]
+pub struct CommandCandidate {
+    /// Most recent entry for this command
+    pub entry: CommandEntry,
+    /// Number of times the command was run
+    pub count: usize,
+    /// Whether the command was ever run in the requested directory
+    pub in_cwd: bool,
+}
+
 /// Represents a redacted token that can be retrieved
 #[derive(Debug, Clone)]
 pub struct Token {
@@ -752,6 +763,48 @@ impl Database {
             .conn
             .query_row(&sql, params_ref.as_slice(), |row| row.get(0))?;
         Ok(count as usize)
+    }
+
+    /// Get every unique command (excluding imported) with its run count and
+    /// whether it was ever run in `cwd`, most recent first.
+    ///
+    /// Used as the candidate set for in-memory fuzzy ranking.
+    pub fn get_command_candidates(&self, cwd: &str) -> Result<Vec<CommandCandidate>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT c.id, c.session_id, c.command, c.timestamp, c.directory, c.redacted,
+                    c.exit_code, g.cnt, g.in_cwd
+             FROM (
+                 SELECT MAX(id) AS id, COUNT(*) AS cnt, MAX(directory = ?1) AS in_cwd
+                 FROM commands
+                 WHERE directory != '<imported>'
+                 GROUP BY command
+             ) g
+             JOIN commands c ON c.id = g.id
+             ORDER BY c.timestamp DESC",
+        )?;
+
+        let candidates = stmt
+            .query_map(params![cwd], |row| {
+                Ok(CommandCandidate {
+                    entry: CommandEntry {
+                        id: row.get(0)?,
+                        session_id: row.get(1)?,
+                        command: row.get(2)?,
+                        timestamp: row
+                            .get::<_, String>(3)?
+                            .parse()
+                            .unwrap_or_else(|_| Utc::now()),
+                        directory: row.get(4)?,
+                        redacted: row.get::<_, i32>(5)? != 0,
+                        exit_code: row.get(6)?,
+                    },
+                    count: row.get::<_, i64>(7)? as usize,
+                    in_cwd: row.get::<_, i32>(8)? != 0,
+                })
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+
+        Ok(candidates)
     }
 
     /// Get unique commands for a specific directory (no duplicates, most recent first)
@@ -1525,6 +1578,33 @@ mod tests {
         assert_eq!(all.len(), 2);
         let ll = all.iter().find(|a| a.alias == "ll").unwrap();
         assert_eq!(ll.command, "ls -lah");
+    }
+
+    #[test]
+    fn test_command_candidates_usage_stats() {
+        let temp_file = NamedTempFile::new().unwrap();
+        let mut db = Database::new(temp_file.path()).unwrap();
+        let now = Utc::now();
+        db.add_command("git status", "/repo", now, false, Some(0))
+            .unwrap();
+        db.add_command("git status", "/other", now, false, Some(0))
+            .unwrap();
+        db.add_command("ls", "/other", now, false, Some(0)).unwrap();
+        db.add_command("old", "<imported>", now, false, Some(0))
+            .unwrap();
+
+        let candidates = db.get_command_candidates("/repo").unwrap();
+        assert_eq!(candidates.len(), 2);
+        let status = candidates
+            .iter()
+            .find(|c| c.entry.command == "git status")
+            .unwrap();
+        assert_eq!(status.count, 2);
+        assert!(status.in_cwd);
+        assert_eq!(status.entry.directory, "/other");
+        let ls = candidates.iter().find(|c| c.entry.command == "ls").unwrap();
+        assert_eq!(ls.count, 1);
+        assert!(!ls.in_cwd);
     }
 
     #[test]

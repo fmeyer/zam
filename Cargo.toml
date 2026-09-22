@@ -29,6 +29,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 ratatui = "0.30"
 crossterm = { version = "0.29", features = ["use-dev-tty"] }
+nucleo-matcher = { version = "0.3.1", default-features = false, features = ["unicode-casefold", "unicode-normalization"] }
 
 
 [dev-dependencies]
