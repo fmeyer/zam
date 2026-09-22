@@ -8,6 +8,7 @@ use crossterm::{
         PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags,
     },
     execute,
+    style::Print,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 use ratatui::{
@@ -260,10 +261,10 @@ impl<'a> AppTUI<'a> {
             table_state: TableState::default(),
             row_count: 0,
             filter: String::new(),
-            match_mode: if db.get_bool_preference("fuzzy_search").unwrap_or(true) {
-                MatchMode::Fuzzy
-            } else {
-                MatchMode::Substring
+            // Fuzzy unless the user explicitly switched it off with Ctrl+F.
+            match_mode: match db.get_preference("fuzzy_search") {
+                Ok(Some(v)) if v == "false" => MatchMode::Substring,
+                _ => MatchMode::Fuzzy,
             },
             confirm_msg: String::new(),
             edit_field: EditField::Command,
@@ -1935,17 +1936,27 @@ pub enum Selection {
     Edit(String),
 }
 
+/// xterm `modifyOtherKeys` level 1: only keys that would otherwise lose their
+/// modifiers (e.g. Shift+Enter) are sent in extended form; Ctrl/Alt keys keep
+/// their legacy encoding. tmux needs `extended-keys on` and
+/// `extended-keys-format csi-u` for crossterm to parse the result.
+const MODIFY_OTHER_KEYS_ON: &str = "\x1b[>4;1m";
+const MODIFY_OTHER_KEYS_OFF: &str = "\x1b[>4;0m";
+
 /// Run the interactive TUI for browsing database entities.
 /// Returns the selected command, if any, and whether it should be executed.
 pub fn run_tui(db: &Database, cwd: String) -> Result<Option<Selection>> {
     let mut tty = File::options().write(true).open("/dev/tty")?;
     enable_raw_mode()?;
     // Ask for disambiguated key reporting so Shift+Enter is distinguishable
-    // from Enter. Terminals without support ignore the sequence.
+    // from Enter: the kitty protocol for terminals that speak it directly, and
+    // xterm modifyOtherKeys for tmux (which ignores the kitty request).
+    // Terminals without support ignore both sequences.
     execute!(
         tty,
         EnterAlternateScreen,
-        PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES)
+        PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES),
+        Print(MODIFY_OTHER_KEYS_ON)
     )?;
     let backend = CrosstermBackend::new(tty);
     let mut terminal = Terminal::new(backend)?;
@@ -1969,6 +1980,7 @@ pub fn run_tui(db: &Database, cwd: String) -> Result<Option<Selection>> {
     disable_raw_mode()?;
     execute!(
         terminal.backend_mut(),
+        Print(MODIFY_OTHER_KEYS_OFF),
         PopKeyboardEnhancementFlags,
         LeaveAlternateScreen
     )?;
