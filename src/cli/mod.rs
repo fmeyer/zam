@@ -94,6 +94,8 @@ pub enum Commands {
     Auth(AuthArgs),
     /// Vacuum the database and optionally prune old commands
     Vacuum(VacuumArgs),
+    /// Predict the next command, or evaluate prediction quality (--eval)
+    Predict(PredictArgs),
     /// Interactive entity browser (database only)
     Tui,
 }
@@ -189,6 +191,7 @@ impl CliApp {
             Commands::EndSession(args) => handle_end_session(self, args),
             Commands::Auth(args) => handle_auth(self, args),
             Commands::Vacuum(args) => handle_vacuum(self, args),
+            Commands::Predict(args) => handle_predict(self, args),
             Commands::Tui => handle_tui(self),
         }
     }

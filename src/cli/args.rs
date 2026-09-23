@@ -453,3 +453,22 @@ pub enum ExportFormat {
     Tsv,
     Plain,
 }
+
+#[derive(Args)]
+pub struct PredictArgs {
+    /// Evaluate prediction quality on your history instead of predicting
+    #[arg(long)]
+    pub eval: bool,
+
+    /// Fraction of history (oldest first) used for training in --eval
+    #[arg(long, default_value_t = 0.8)]
+    pub train_frac: f64,
+
+    /// Blend weights: trigram,bigram,template,failure,cwd,global
+    #[arg(short = 'W', long)]
+    pub weights: Option<crate::predict::Weights>,
+
+    /// Number of predictions to show
+    #[arg(short = 'n', long, default_value = "10")]
+    pub count: usize,
+}

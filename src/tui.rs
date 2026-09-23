@@ -5,6 +5,8 @@ use crate::database::{
 };
 use crate::error::Result;
 use crate::fuzzy::{self, CaseMatching};
+use crate::predict::{self, Context as PredictContext, Predictor, Weights};
+use crate::ranking::{self, RankInput, SortMode};
 use crossterm::{
     event::{
         self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, KeyboardEnhancementFlags,
@@ -221,11 +223,21 @@ struct AppTUI<'a> {
     match_mode: MatchMode,
     matcher: RefCell<fuzzy::Matcher>,
 
-    // Ranked search over unique commands (Commands tab with a filter).
-    // Candidates are loaded once and ranked in memory on each query change.
+    // Sort order for the Commands and Local tabs (Ctrl+R cycles).
+    sort_mode: SortMode,
+    // Next-command predictor, trained on first use of `SortMode::Next`.
+    predictor: Option<(Predictor, PredictContext)>,
+
+    // Ranked view over unique commands (Commands tab when filtering or not
+    // sorting by recency). Candidates are loaded once and ranked in memory.
     candidates: Option<Vec<CommandCandidate>>,
     ranked: Vec<usize>,
-    ranked_for: Option<(String, MatchMode)>,
+    ranked_for: Option<(String, MatchMode, SortMode)>,
+
+    // Local tab: visible rows (filtered and sorted) as indices into
+    // `local_commands`, plus run counts in the cwd for frecency.
+    local_order: Vec<usize>,
+    local_counts: std::collections::HashMap<String, usize>,
 
     // Confirm delete
     confirm_msg: String,
@@ -279,9 +291,17 @@ impl<'a> AppTUI<'a> {
             filter: String::new(),
             match_mode,
             matcher: RefCell::new(fuzzy::Matcher::new("", match_mode, CaseMatching::Smart)),
+            sort_mode: db
+                .get_preference("sort_mode")
+                .ok()
+                .flatten()
+                .map_or(SortMode::Recent, |v| SortMode::from_label(&v)),
+            predictor: None,
             candidates: None,
             ranked: Vec::new(),
             ranked_for: None,
+            local_order: Vec::new(),
+            local_counts: std::collections::HashMap::new(),
             confirm_msg: String::new(),
             edit_field: EditField::Command,
             edit_buf: String::new(),
@@ -313,7 +333,7 @@ impl<'a> AppTUI<'a> {
             Some(self.filter.as_str())
         };
         match self.tab {
-            Tab::Commands if filter.is_some() => {
+            Tab::Commands if filter.is_some() || self.sort_mode != SortMode::Recent => {
                 self.rank_commands()?;
                 let candidates = self.candidates.as_deref().unwrap_or_default();
                 self.total_paged_rows = self.ranked.len();
@@ -347,7 +367,11 @@ impl<'a> AppTUI<'a> {
             }
             Tab::Local => {
                 self.local_commands = self.db.get_commands_for_directory(&self.cwd)?;
+                if self.sort_mode == SortMode::Frequent {
+                    self.local_counts = self.db.get_command_counts_for_directory(&self.cwd)?;
+                }
                 self.row_count = self.local_commands.len();
+                self.order_local()?;
             }
             Tab::Frequent => {
                 self.frequent = self
@@ -380,40 +404,105 @@ impl<'a> AppTUI<'a> {
         Ok(())
     }
 
-    /// Rank all unique commands against the current filter by match score
-    /// blended with frecency. Cached per (filter, mode) so paging is cheap.
+    /// Rank all unique commands by the current filter and sort mode.
+    /// Cached per (filter, match mode, sort mode) so paging is cheap.
     fn rank_commands(&mut self) -> Result<()> {
         if self.candidates.is_none() {
             self.candidates = Some(self.db.get_command_candidates(&self.cwd)?);
             self.ranked_for = None;
         }
-        let key = (self.filter.clone(), self.match_mode);
+        let key = (self.filter.clone(), self.match_mode, self.sort_mode);
         if self.ranked_for.as_ref() == Some(&key) {
             return Ok(());
         }
+        self.ensure_predictor()?;
 
         let candidates = self.candidates.as_deref().unwrap_or_default();
-        let matcher = self.matcher.get_mut();
-        matcher.set_query(&self.filter, self.match_mode);
-        let now = chrono::Utc::now();
-        let mut scored: Vec<(usize, f64)> = candidates
-            .iter()
-            .enumerate()
-            .filter_map(|(i, c)| {
-                let score = matcher.score(&c.entry.command)?;
-                let usage = fuzzy::Usage {
-                    count: c.count,
-                    last_used: c.entry.timestamp,
-                    in_cwd: c.in_cwd,
-                };
-                Some((i, fuzzy::rank(score, &usage, now)))
-            })
-            .collect();
-        // Stable sort: candidates are most-recent-first, so ties keep recency.
-        scored.sort_by(|a, b| b.1.total_cmp(&a.1));
-        self.ranked = scored.into_iter().map(|(i, _)| i).collect();
+        let inputs: Vec<RankInput> = {
+            let scorer = self.predictor.as_ref().map(|(p, ctx)| p.scorer(ctx));
+            candidates
+                .iter()
+                .map(|c| RankInput {
+                    usage: fuzzy::Usage {
+                        count: c.count,
+                        last_used: c.entry.timestamp,
+                        in_cwd: c.in_cwd,
+                    },
+                    next_score: scorer.as_ref().map_or(0.0, |s| s.score(&c.entry.command)),
+                })
+                .collect()
+        };
+        let matches = self.match_scores(candidates.iter().map(|c| c.entry.command.as_str()));
+        self.ranked = ranking::order(
+            self.sort_mode,
+            &inputs,
+            matches.as_deref(),
+            chrono::Utc::now(),
+        );
         self.ranked_for = Some(key);
         Ok(())
+    }
+
+    /// Filter and sort the Local tab into `local_order`.
+    fn order_local(&mut self) -> Result<()> {
+        self.ensure_predictor()?;
+        // The predictor's context is already for the current directory.
+        let scorer = self.predictor.as_ref().map(|(p, ctx)| p.scorer(ctx));
+        let inputs: Vec<RankInput> = self
+            .local_commands
+            .iter()
+            .map(|c| RankInput {
+                usage: fuzzy::Usage {
+                    count: self.local_counts.get(&c.command).copied().unwrap_or(1),
+                    last_used: c.timestamp,
+                    in_cwd: true,
+                },
+                next_score: scorer.as_ref().map_or(0.0, |s| s.score(&c.command)),
+            })
+            .collect();
+        let matches = self.match_scores(self.local_commands.iter().map(|c| c.command.as_str()));
+        self.local_order = ranking::order(
+            self.sort_mode,
+            &inputs,
+            matches.as_deref(),
+            chrono::Utc::now(),
+        );
+        Ok(())
+    }
+
+    /// Fuzzy scores of `texts` for the current filter; `None` if no filter.
+    fn match_scores<'t>(&self, texts: impl Iterator<Item = &'t str>) -> Option<Vec<Option<u32>>> {
+        if self.filter.is_empty() {
+            return None;
+        }
+        let mut matcher = self.matcher.borrow_mut();
+        matcher.set_query(&self.filter, self.match_mode);
+        Some(texts.map(|t| matcher.score(t)).collect())
+    }
+
+    /// Train the next-command predictor the first time `Next` sorting is
+    /// used; it reads the whole history, so it is skipped otherwise.
+    fn ensure_predictor(&mut self) -> Result<()> {
+        if self.sort_mode != SortMode::Next || self.predictor.is_some() {
+            return Ok(());
+        }
+        let history = predict::prepare_history(self.db.get_all_commands()?);
+        let session_id = std::env::var("ZAM_SESSION_ID").unwrap_or_default();
+        self.predictor = Some(predict::train(
+            &history,
+            Weights::default(),
+            &session_id,
+            &self.cwd,
+        ));
+        Ok(())
+    }
+
+    fn cycle_sort_mode(&mut self) -> Result<()> {
+        self.sort_mode = self.sort_mode.cycle();
+        let _ = self.db.set_preference("sort_mode", self.sort_mode.label());
+        self.status = Some(format!("sort: {}", self.sort_mode.label()));
+        self.page = 0;
+        self.load_tab()
     }
 
     /// Drop cached candidates after the underlying commands change.
@@ -435,18 +524,16 @@ impl<'a> AppTUI<'a> {
         if matches!(self.tab, Tab::Sessions) && self.session_detail_id.is_none() {
             return Some(sel);
         }
+        // Local: filtered and sorted view
+        if matches!(self.tab, Tab::Local) {
+            return self.local_order.get(sel).copied();
+        }
         if self.filter.is_empty() {
             return Some(sel);
         }
         // Client-side filtered tabs: find the sel-th matching item
         let matching_indices: Vec<usize> = match self.tab {
-            Tab::Local => self
-                .local_commands
-                .iter()
-                .enumerate()
-                .filter(|(_, c)| self.matches_filter(&c.command))
-                .map(|(i, _)| i)
-                .collect(),
+            Tab::Local => self.local_order.clone(),
             Tab::Frequent => self
                 .frequent
                 .iter()
@@ -499,15 +586,14 @@ impl<'a> AppTUI<'a> {
         if matches!(self.tab, Tab::Sessions) && self.session_detail_id.is_none() {
             return self.row_count;
         }
+        if matches!(self.tab, Tab::Local) {
+            return self.local_order.len();
+        }
         if self.filter.is_empty() {
             return self.row_count;
         }
         match self.tab {
-            Tab::Local => self
-                .local_commands
-                .iter()
-                .filter(|c| self.matches_filter(&c.command))
-                .count(),
+            Tab::Local => self.local_order.len(),
             Tab::Frequent => self
                 .frequent
                 .iter()
@@ -963,6 +1049,10 @@ impl<'a> AppTUI<'a> {
                     }
                     KeyCode::Char('f') => {
                         self.toggle_match_mode()?;
+                        return Ok(());
+                    }
+                    KeyCode::Char('r') => {
+                        self.cycle_sort_mode()?;
                         return Ok(());
                     }
                     _ => {}
@@ -1430,9 +1520,9 @@ impl<'a> AppTUI<'a> {
         );
 
         let rows: Vec<Row> = self
-            .local_commands
+            .local_order
             .iter()
-            .filter(|c| self.matches_filter(&c.command))
+            .map(|&i| &self.local_commands[i])
             .map(|c| {
                 let cmd_cell = if !filter_ref.is_empty() {
                     Cell::from(highlight_matches(
@@ -1683,6 +1773,9 @@ impl<'a> AppTUI<'a> {
                     }
                     .to_string(),
                 ];
+                if matches!(self.tab, Tab::Commands | Tab::Local) {
+                    right_parts.push(self.sort_mode.label().to_string());
+                }
                 let count_info = if self.is_paginated_tab() {
                     let filtered = self.row_count;
                     let total = self.total_paged_rows;
@@ -1793,6 +1886,7 @@ impl<'a> AppTUI<'a> {
         let mut help = vec![
             Line::from(vec![Span::styled("search", header_style)]),
             Line::from("  type to filter          ^F  toggle fuzzy / exact matching"),
+            Line::from("  ^R  cycle sort: recent / frequent / next (History, Local)"),
             Line::from("  Enter  run command      Shift+Enter / Alt+Enter  edit before running"),
             Line::from("  Esc    clear / quit"),
             Line::from(""),
