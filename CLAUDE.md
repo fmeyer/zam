@@ -88,6 +88,7 @@ Backend selection logic (in `cli/mod.rs:114-138`):
   - `shell_integration.rs`: shell integration script generation
   - `tui_handler.rs`: interactive TUI entity browser
   - `alias.rs`: alias management
+  - `predict.rs`: next-command prediction and `--eval`
 
 **Core Library** (`src/` root):
 - `history.rs`: File-based history manager (`HistoryManager`)
@@ -97,6 +98,8 @@ Backend selection logic (in `cli/mod.rs:114-138`):
 - `redaction.rs`: Sensitive data detection and redaction engine
 - `search.rs`: Search functionality with fuzzy matching and regex
 - `fuzzy.rs`: Shared fuzzy matcher (`nucleo-matcher`, fzf v2 scoring and query syntax) and built-in frecency ranking
+- `predict.rs`: Next-command prediction (interpolated n-gram over session history) and offline evaluation (`zam predict --eval`)
+- `ranking.rs`: TUI sort modes (recent / frequent / next) and list ordering blended with match score
 - `config.rs`: Configuration loading and management
 - `error.rs`: Error types and Result alias
 - `types.rs`: Type-safe newtype wrappers for IDs (CommandId, HostId, SessionId)
@@ -163,6 +166,7 @@ The `zam tui` command provides a tabbed interface for browsing all database enti
 - Uses crossterm `use-dev-tty` feature for input when stdin is captured
 - Enter on Local/Frequent tabs returns the selected command string via `Option<String>`
 - Supports filtering (`/`), deletion (`d`), alias editing (`e`), and help overlay (`?`)
+- `Ctrl+R` cycles the sort mode of the History and Local tabs (recent / frequent / next); `next` trains the predictor lazily on first use
 
 **Shell integration** (`shell_integration.rs`):
 - Zsh: `precmd`/`preexec` hooks log only successful commands (exit code 0)

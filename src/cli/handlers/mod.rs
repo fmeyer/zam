@@ -4,6 +4,7 @@
 //! - `basic`: Basic commands (log, search, recent, frequent)
 //! - `import_export`: Import and export handlers
 //! - `database`: Database-specific handlers (migrate, merge, tokens, hosts, sessions)
+//! - `predict`: Next-command prediction and its offline evaluation
 //! - `config`: Configuration and shell integration handlers
 //! - `util`: Utility functions for handlers
 
@@ -13,6 +14,7 @@ mod basic;
 mod config;
 mod database;
 mod import_export;
+mod predict;
 mod shell_integration;
 mod tui_handler;
 
@@ -22,5 +24,6 @@ pub use basic::*;
 pub use config::*;
 pub use database::*;
 pub use import_export::*;
+pub use predict::*;
 pub use shell_integration::*;
 pub use tui_handler::*;

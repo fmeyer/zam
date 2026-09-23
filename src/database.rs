@@ -807,6 +807,22 @@ impl Database {
         Ok(candidates)
     }
 
+    /// Number of times each command was run in `directory`.
+    pub fn get_command_counts_for_directory(
+        &self,
+        directory: &str,
+    ) -> Result<std::collections::HashMap<String, usize>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT command, COUNT(*) FROM commands WHERE directory = ?1 GROUP BY command",
+        )?;
+        let counts = stmt
+            .query_map(params![directory], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)? as usize))
+            })?
+            .collect::<rusqlite::Result<_>>()?;
+        Ok(counts)
+    }
+
     /// Get unique commands for a specific directory (no duplicates, most recent first)
     pub fn get_commands_for_directory(&self, directory: &str) -> Result<Vec<CommandEntry>> {
         let mut stmt = self.conn.prepare(
@@ -1605,6 +1621,20 @@ mod tests {
         let ls = candidates.iter().find(|c| c.entry.command == "ls").unwrap();
         assert_eq!(ls.count, 1);
         assert!(!ls.in_cwd);
+    }
+
+    #[test]
+    fn test_command_counts_for_directory() {
+        let temp_file = NamedTempFile::new().unwrap();
+        let mut db = Database::new(temp_file.path()).unwrap();
+        let now = Utc::now();
+        for (cmd, dir) in [("ls", "/a"), ("ls", "/a"), ("ls", "/b"), ("make", "/a")] {
+            db.add_command(cmd, dir, now, false, Some(0)).unwrap();
+        }
+        let counts = db.get_command_counts_for_directory("/a").unwrap();
+        assert_eq!(counts.len(), 2);
+        assert_eq!(counts["ls"], 2);
+        assert_eq!(counts["make"], 1);
     }
 
     #[test]

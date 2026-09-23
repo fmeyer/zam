@@ -134,6 +134,13 @@ pub fn frecency(count: usize, last_used: DateTime<Utc>, now: DateTime<Utc>) -> f
     count as f64 * recency
 }
 
+/// Frecency and same-directory part of the rank multiplier (0 = no boost).
+#[must_use]
+pub fn frecency_boost(usage: &Usage, now: DateTime<Utc>) -> f64 {
+    let dir_bonus = if usage.in_cwd { SAME_DIR_BONUS } else { 0.0 };
+    FRECENCY_WEIGHT * frecency(usage.count, usage.last_used, now).ln_1p() + dir_bonus
+}
+
 /// Final rank for a matched command: match score scaled by frecency and a
 /// same-directory bonus. Higher is better.
 ///
@@ -141,10 +148,7 @@ pub fn frecency(count: usize, last_used: DateTime<Utc>, now: DateTime<Utc>) -> f
 /// matches but cannot lift a poor match far above a clearly better one.
 #[must_use]
 pub fn rank(score: u32, usage: &Usage, now: DateTime<Utc>) -> f64 {
-    let dir_bonus = if usage.in_cwd { SAME_DIR_BONUS } else { 0.0 };
-    let multiplier =
-        1.0 + FRECENCY_WEIGHT * frecency(usage.count, usage.last_used, now).ln_1p() + dir_bonus;
-    f64::from(score) * multiplier
+    f64::from(score) * (1.0 + frecency_boost(usage, now))
 }
 
 #[cfg(test)]
